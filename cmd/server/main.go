@@ -11,13 +11,22 @@ import (
 	"os"
 	"time"
 
-	_ "github.com/joho/godotenv/autoload" // автоматически загружает .env
-
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Fatal("Ошибка загрузки .env файла")
+	}
+
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		log.Fatal("❌ JWT_SECRET не загружен из .env!")
+	}
+	log.Printf("✅ JWT_SECRET загружен, длина: %d", len(secret))
+
 	// === 1. Подключение к базе данных ===
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
@@ -55,6 +64,9 @@ func main() {
 
 	// === 5. Настройка Gin-роутера ===
 	router := gin.Default()
+
+	// Обслуживаем статические файлы
+	router.Static("/uploads", "./uploads") // ← добавь эту строку
 
 	// Публичные роуты
 	router.POST("/register", authHandler.Register)
