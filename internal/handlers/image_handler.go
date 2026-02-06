@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"moduleExample/web-service-gin/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -12,6 +13,29 @@ type ImageHandler struct {
 
 func NewImageHandler(svc *services.ImageService) *ImageHandler {
 	return &ImageHandler{imageService: svc}
+}
+
+func (h *ImageHandler) GetImage(c *gin.Context) {
+	userID, _ := c.Get("user_id")
+	imageID := c.Param("id")
+
+	if imageID == "" {
+		c.AbortWithStatusJSON(400, gin.H{"error": "image ID is required"})
+		return
+	}
+
+	img, err := h.imageService.GetImageByID(c.Request.Context(), imageID, userID.(int))
+	if err != nil {
+		if err.Error() == "изображение не найдено" || err.Error() == "доступ запрещён" {
+			c.AbortWithStatusJSON(404, gin.H{"error": "изображение не найдено"})
+			return
+		}
+		c.AbortWithStatusJSON(500, gin.H{"error": "внутренняя ошибка"})
+		return
+	}
+
+	log.Printf("Получено изображение из БД: %+v", img)
+	c.JSON(200, img)
 }
 
 // internal/handlers/image_handler.go
@@ -32,22 +56,7 @@ func (h *ImageHandler) GetImages(c *gin.Context) {
 }
 
 func (h *ImageHandler) PostImage(c *gin.Context) {
-	userID, _ := c.Get("user_id")
-	var req struct {
-		Title string `json:"title" binding:"required"`
-		Style string `json:"style" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": "title and style are required"})
-		return
-	}
-
-	img, err := h.imageService.CreateImage(c.Request.Context(), userID.(int), req.Title, req.Style)
-	if err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(201, img)
+	c.AbortWithStatusJSON(400, gin.H{"error": "используйте POST /images с multipart/form-data для загрузки файлов"})
 }
 
 func (h *ImageHandler) UploadImage(c *gin.Context) {

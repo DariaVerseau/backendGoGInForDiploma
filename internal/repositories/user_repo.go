@@ -26,7 +26,7 @@ func (r *UserRepository) Create(ctx context.Context, email, passwordHash string)
 }
 
 func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {
-	log.Printf("🔍 Запрос пользователя: %s", email) // ← добавь эту строку
+	log.Printf("Запрос пользователя: %s", email) // ← добавь эту строку
 
 	var user models.User
 	err := r.db.QueryRow(ctx,

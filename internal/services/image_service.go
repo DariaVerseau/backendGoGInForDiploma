@@ -9,7 +9,6 @@ import (
 	"moduleExample/web-service-gin/internal/repositories"
 	"moduleExample/web-service-gin/internal/storage"
 	"path/filepath"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -17,8 +16,7 @@ import (
 // ImageService управляет жизненным циклом изображений
 type ImageService struct {
 	imageRepo *repositories.ImageRepository
-	storage   *storage.LocalStorage // added
-	// Позже сюда добавим: mlClient, storage и т.д.
+	storage   *storage.LocalStorage
 }
 
 func NewImageService(imageRepo *repositories.ImageRepository, storage *storage.LocalStorage) *ImageService {
@@ -28,39 +26,8 @@ func NewImageService(imageRepo *repositories.ImageRepository, storage *storage.L
 	}
 }
 
-// generateImageID генерирует уникальный ID для изображения
-func generateImageID() string {
-	return uuid.New().String()
-}
-
-// CreateImage создаёт новое изображение с UUID
-func (s *ImageService) CreateImage(ctx context.Context, userID int, title, style string) (*models.Image, error) {
-	if title == "" {
-		return nil, errors.New("title is required")
-	}
-	if style == "" {
-		return nil, errors.New("style is required")
-	}
-
-	img := &models.Image{
-		ID:     generateImageID(), // ← теперь UUID!
-		UserID: userID,
-		Title:  title,
-		Style:  style,
-		URL:    "/uploads/" + generateImageID() + ".jpg", // временный URL
-	}
-
-	err := s.imageRepo.Create(ctx, img)
-	if err != nil {
-		return nil, err
-	}
-
-	return img, nil
-}
-
 // GetImagesByUser возвращает список изображений для указанного пользователя
 func (s *ImageService) GetImagesByUser(ctx context.Context, userID int) ([]models.Image, error) {
-	// Делегируем запрос репозиторию
 	images, err := s.imageRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("не удалось получить изображения: %w", err)
@@ -72,20 +39,17 @@ func (s *ImageService) GetImagesByUser(ctx context.Context, userID int) ([]model
 func (s *ImageService) GetImageByID(ctx context.Context, imageID string, userID int) (*models.Image, error) {
 	img, err := s.imageRepo.GetByIDAndUser(ctx, imageID, userID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ошибка получения изображения: %w", err)
 	}
+
 	if img == nil {
 		return nil, errors.New("изображение не найдено")
 	}
+
 	return img, nil
 }
 
-// Вспомогательная функция для генерации ID
-func generateID() string {
-	// В реальном проекте используй UUID
-	return time.Now().Format("20060102150405") // YYYYMMDDHHMMSS
-}
-
+// UploadImage обрабатывает загрузку файла и сохранение метаданных
 func (s *ImageService) UploadImage(ctx context.Context, userID int, file *multipart.FileHeader, title, style string) (*models.Image, error) {
 	// Валидация
 	if file == nil {
@@ -98,12 +62,12 @@ func (s *ImageService) UploadImage(ctx context.Context, userID int, file *multip
 		return nil, errors.New("стиль обязателен")
 	}
 
-	// Ограничение размера (опционально)
+	// Ограничение размера
 	if file.Size > 10<<20 { // 10 МБ
 		return nil, errors.New("файл слишком большой (макс. 10 МБ)")
 	}
 
-	// Разрешённые типы (опционально)
+	// Проверка типа файла
 	allowedTypes := map[string]bool{
 		".jpg":  true,
 		".jpeg": true,
@@ -120,9 +84,12 @@ func (s *ImageService) UploadImage(ctx context.Context, userID int, file *multip
 		return nil, fmt.Errorf("не удалось сохранить файл: %w", err)
 	}
 
+	// Генерируем один UUID для ID и имени файла
+	newID := uuid.New().String()
+
 	// Создаём запись в БД
 	img := &models.Image{
-		ID:     uuid.New().String(),
+		ID:     newID,
 		UserID: userID,
 		Title:  title,
 		URL:    url,
@@ -133,5 +100,6 @@ func (s *ImageService) UploadImage(ctx context.Context, userID int, file *multip
 		return nil, fmt.Errorf("не удалось сохранить метаданные: %w", err)
 	}
 
-	return img, nil
+	// Возвращаем данные из БД (с корректным created_at)
+	return s.imageRepo.GetByIDAndUser(ctx, newID, userID)
 }

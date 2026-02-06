@@ -76,6 +76,7 @@ func main() {
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware())
 	{
+		protected.GET("/images/:id", imageHandler.GetImage)
 		protected.GET("/images", imageHandler.GetImages)
 		protected.POST("/images", imageHandler.UploadImage)
 	}
