@@ -18,9 +18,12 @@ func NewAuthService(userRepo *repositories.UserRepository) *AuthService {
 	return &AuthService{userRepo: userRepo}
 }
 
-func (s *AuthService) Register(email, password string) error {
+func (s *AuthService) Register(ctx context.Context, email, password string) error {
 	// Проверка, что email свободен
-	existing, _ := s.userRepo.FindByEmail(context.Background(), email)
+	existing, err := s.userRepo.FindByEmail(ctx, email)
+	if err != nil && !errors.Is(err, repositories.ErrNotFound) {
+		return err // ошибка БД — прокидываем наверх
+	}
 	if existing != nil {
 		return errors.New("email уже зарегистрирован")
 	}

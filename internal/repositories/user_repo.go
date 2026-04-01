@@ -10,6 +10,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// Определяем кастомную ошибку
+var ErrNotFound = errors.New("user not found")
+
 type UserRepository struct {
 	db *pgxpool.Pool
 }
@@ -26,7 +29,7 @@ func (r *UserRepository) Create(ctx context.Context, email, passwordHash string)
 }
 
 func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {
-	log.Printf("Запрос пользователя: %s", email) // ← добавь эту строку
+	log.Printf("Запрос пользователя: %s", email)
 
 	var user models.User
 	err := r.db.QueryRow(ctx,
@@ -35,7 +38,7 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*models
 	if err != nil {
 		log.Printf("❌ Ошибка поиска: %v", err)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
+			return nil, ErrNotFound 
 		}
 		return nil, err
 	}

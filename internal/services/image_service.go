@@ -52,7 +52,7 @@ func (s *ImageService) GetImageByID(ctx context.Context, imageID string, userID 
 // UploadImage обрабатывает загрузку файла и сохранение метаданных
 func (s *ImageService) UploadImage(ctx context.Context, userID int, file *multipart.FileHeader, title, style string) (*models.Image, error) {
 	// Валидация
-	if file == nil {
+	if file == nil || file.Size == 0 {
 		return nil, errors.New("файл не предоставлен")
 	}
 	if title == "" {
@@ -62,7 +62,7 @@ func (s *ImageService) UploadImage(ctx context.Context, userID int, file *multip
 		return nil, errors.New("стиль обязателен")
 	}
 
-	// Ограничение размера
+	// Ограничение размера файла до 10 МБ
 	if file.Size > 10<<20 { // 10 МБ
 		return nil, errors.New("файл слишком большой (макс. 10 МБ)")
 	}
@@ -84,12 +84,15 @@ func (s *ImageService) UploadImage(ctx context.Context, userID int, file *multip
 		return nil, fmt.Errorf("не удалось сохранить файл: %w", err)
 	}
 
-	// Генерируем один UUID для ID и имени файла
-	newID := uuid.New().String()
+	// Генерируем UUID
+	newID, err := uuid.NewRandom()
+	if err != nil {
+		return nil, fmt.Errorf("ошибка генерации UUID: %w", err)
+	}
 
 	// Создаём запись в БД
 	img := &models.Image{
-		ID:     newID,
+		ID:     newID.String(),
 		UserID: userID,
 		Title:  title,
 		URL:    url,
@@ -101,5 +104,5 @@ func (s *ImageService) UploadImage(ctx context.Context, userID int, file *multip
 	}
 
 	// Возвращаем данные из БД (с корректным created_at)
-	return s.imageRepo.GetByIDAndUser(ctx, newID, userID)
+	return img, nil
 }

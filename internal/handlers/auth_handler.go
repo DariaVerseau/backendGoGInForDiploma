@@ -25,7 +25,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	if err := h.authService.Register(req.Email, req.Password); err != nil {
+	if err := h.authService.Register(c.Request.Context(), req.Email, req.Password); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
 		return
 	}
