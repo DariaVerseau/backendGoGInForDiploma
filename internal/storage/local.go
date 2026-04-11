@@ -18,13 +18,12 @@ func NewLocalStorage(uploadDir string) *LocalStorage {
 	return &LocalStorage{uploadDir: uploadDir}
 }
 
-// Save сохраняет файл и возвращает относительный путь
+// Save сохраняет загруженный файл из HTTP-запроса
 func (s *LocalStorage) Save(file *multipart.FileHeader) (string, error) {
-	// Генерируем уникальное имя: UUID + расширение
 	ext := filepath.Ext(file.Filename)
 	filename := uuid.New().String() + ext
-
 	dstPath := filepath.Join(s.uploadDir, filename)
+
 	src, err := file.Open()
 	if err != nil {
 		return "", fmt.Errorf("не удалось открыть файл: %w", err)
@@ -41,6 +40,22 @@ func (s *LocalStorage) Save(file *multipart.FileHeader) (string, error) {
 		return "", fmt.Errorf("не удалось записать файл: %w", err)
 	}
 
-	// Возвращаем URL относительно корня сервера
+	return "/uploads/" + filename, nil
+}
+
+// SaveBytes сохраняет байты как файл и возвращает URL
+func (s *LocalStorage) SaveBytes(data []byte, originalFilename string) (string, error) {
+	// Генерируем уникальное имя с оригинальным расширением
+	ext := filepath.Ext(originalFilename)
+	if ext == "" {
+		ext = ".png" // по умолчанию для изображений
+	}
+	filename := uuid.New().String() + ext
+	dstPath := filepath.Join(s.uploadDir, filename)
+
+	if err := os.WriteFile(dstPath, data, 0644); err != nil {
+		return "", fmt.Errorf("не удалось сохранить байты в файл: %w", err)
+	}
+
 	return "/uploads/" + filename, nil
 }

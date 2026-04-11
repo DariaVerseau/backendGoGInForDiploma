@@ -57,10 +57,12 @@ func main() {
 	// === 3. Инициализация сервисов ===
 	authService := services.NewAuthService(userRepo)
 	imageService := services.NewImageService(imageRepo, fileStorage)
+	mlService := services.NewMLService(fileStorage, uploadDir)
 
 	// === 4. Инициализация хендлеров ===
 	authHandler := handlers.NewAuthHandler(authService)
 	imageHandler := handlers.NewImageHandler(imageService)
+	mlHandler := handlers.NewMLHandler(mlService)
 
 	// === 5. Настройка Gin-роутера ===
 	router := gin.Default()
@@ -79,6 +81,13 @@ func main() {
 		protected.GET("/images/:id", imageHandler.GetImage)
 		protected.GET("/images", imageHandler.GetImages)
 		protected.POST("/images", imageHandler.UploadImage)
+
+		// ML эндпоинты
+		protected.POST("/ml/upscale", mlHandler.Upscale)
+		protected.POST("/ml/enhance", mlHandler.EnhanceFace)
+		protected.POST("/ml/upscale", mlHandler.Upscale)                   // → /process
+		protected.POST("/ml/colorize", mlHandler.Colorize)                 // → /colorize
+		protected.POST("/ml/style_transfer", mlHandler.StyleTransferAdaIN) // → /style_transfer_adain
 	}
 
 	// === 6. Запуск сервера ===
