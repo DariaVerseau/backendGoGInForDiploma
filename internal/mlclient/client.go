@@ -1,3 +1,4 @@
+// Package mlclient предоставляет HTTP-клиент для взаимодействия с ML-микросервисом.
 package mlclient
 
 import (
@@ -11,7 +12,6 @@ import (
 	"time"
 )
 
-// MLServiceURL — имя сервиса в docker-compose + порт внутри сети Docker
 const MLServiceURL = "http://ml-service:8000"
 
 type Client struct {
@@ -21,102 +21,99 @@ type Client struct {
 func NewClient() *Client {
 	return &Client{
 		client: &http.Client{
-			Timeout: 90 * time.Second, // ML может обрабатывать долго
+			Timeout: 90 * time.Second,
 		},
 	}
 }
 
-func (c *Client) postFile(ctx context.Context, endpoint, paramName, filename string, data []byte) ([]byte, error) {
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-
-	part, err := writer.CreateFormFile(paramName, filepath.Base(filename))
+// doRequest выполняет HTTP-запрос и возвращает тело ответа или ошибку.
+func (c *Client) doRequest(ctx context.Context, method, url string, body io.Reader, contentType string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
-		return nil, fmt.Errorf("create form file: %w", err)
+		return nil, fmt.Errorf("ошибка создания запроса: %w", err)
 	}
-	_, err = part.Write(data)
-	if err != nil {
-		return nil, fmt.Errorf("write file data: %w", err)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
-	writer.Close()
-
-	req, err := http.NewRequestWithContext(ctx, "POST", MLServiceURL+endpoint, body)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("send request: %w", err)
+		return nil, fmt.Errorf("ошибка отправки запроса: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ML service error: status %d", resp.StatusCode)
-	}
-
-	result, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+		return nil, fmt.Errorf("ошибка чтения ответа: %w", err)
 	}
 
-	return result, nil
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ML-сервис вернул статус %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	return respBody, nil
 }
 
-// Upscale отправляет изображение в /upscale
-func (c *Client) Upscale(ctx context.Context, imageData []byte, filename string) ([]byte, error) {
-	return c.postFile(ctx, "/upscale", "file", filename, imageData)
-}
-
-// EnhanceFace отправляет изображение в /enhance_face
-func (c *Client) EnhanceFace(ctx context.Context, imageData []byte, filename string) ([]byte, error) {
-	return c.postFile(ctx, "/enhance", "file", filename, imageData)
-}
-
-// StyleTransfer отправляет content и style (упрощённо — можно расширить)
-func (c *Client) StyleTransfer(ctx context.Context, contentData, styleData []byte) ([]byte, error) {
-	// Для двух файлов нужен отдельный метод — пока оставим как заглушку
-	return nil, fmt.Errorf("style transfer not implemented in client yet")
-}
-
-// Colorize вызывает /colorize
-func (c *Client) Colorize(ctx context.Context, imageData []byte, filename string) ([]byte, error) {
-	return c.postFile(ctx, "/colorize", "file", filename, imageData)
-}
-
-// Postprocess вызывает /postprocess
-func (c *Client) Postprocess(ctx context.Context, imageData []byte, filename string) ([]byte, error) {
-	return c.postFile(ctx, "/postprocess", "file", filename, imageData)
-}
-
-// StyleTransferAdaIn вызывает /style_transfer_adain с двумя файлами
-func (c *Client) StyleTransferAdaIn(ctx context.Context, contentData, styleData []byte, contentName, styleName string) ([]byte, error) {
+// PostFileWithFields отправляет один файл и дополнительные поля формы (например, scale).
+func (c *Client) PostFileWithFields(
+	ctx context.Context,
+	endpoint, fileParamName, filename string,
+	fileData []byte,
+	fields map[string]string,
+) ([]byte, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	// Content
-	contentPart, _ := writer.CreateFormFile("content", contentName)
-	contentPart.Write(contentData)
-
-	// Style
-	stylePart, _ := writer.CreateFormFile("style", styleName)
-	stylePart.Write(styleData)
-
-	writer.Close()
-
-	req, _ := http.NewRequestWithContext(ctx, "POST", MLServiceURL+"/style_transfer_adain", body)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	resp, err := c.client.Do(req)
+	part, err := writer.CreateFormFile(fileParamName, filepath.Base(filename))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ошибка создания файла в форме: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("style transfer failed: %d", resp.StatusCode)
+	if _, err := part.Write(fileData); err != nil {
+		return nil, fmt.Errorf("ошибка записи данных файла: %w", err)
 	}
 
-	return io.ReadAll(resp.Body)
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			return nil, fmt.Errorf("ошибка записи поля %s: %w", key, err)
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("ошибка закрытия формы: %w", err)
+	}
+
+	return c.doRequest(ctx, "POST", MLServiceURL+endpoint, body, writer.FormDataContentType())
+}
+
+// PostFile — отправка файла без дополнительных полей.
+func (c *Client) PostFile(ctx context.Context, endpoint, paramName, filename string, data []byte) ([]byte, error) {
+	return c.PostFileWithFields(ctx, endpoint, paramName, filename, data, nil)
+}
+
+// StyleTransfer отправляет два файла: content и style.
+func (c *Client) StyleTransfer(
+	ctx context.Context,
+	contentData, styleData []byte,
+	contentName, styleName string,
+) ([]byte, error) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	if part, err := writer.CreateFormFile("content", filepath.Base(contentName)); err != nil {
+		return nil, fmt.Errorf("ошибка создания content-формы: %w", err)
+	} else if _, err := part.Write(contentData); err != nil {
+		return nil, fmt.Errorf("ошибка записи content: %w", err)
+	}
+
+	if part, err := writer.CreateFormFile("style", filepath.Base(styleName)); err != nil {
+		return nil, fmt.Errorf("ошибка создания style-формы: %w", err)
+	} else if _, err := part.Write(styleData); err != nil {
+		return nil, fmt.Errorf("ошибка записи style: %w", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("ошибка закрытия формы style_transfer: %w", err)
+	}
+
+	return c.doRequest(ctx, "POST", MLServiceURL+"/style_transfer_adain", body, writer.FormDataContentType())
 }

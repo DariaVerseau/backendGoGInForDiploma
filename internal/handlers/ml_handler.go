@@ -1,161 +1,161 @@
 package handlers
 
 import (
-	"io"
 	"moduleExample/web-service-gin/internal/services"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
 
 type MLHandler struct {
-	mlService *services.MLService
+	imageService *services.ImageService
 }
 
-func NewMLHandler(mlService *services.MLService) *MLHandler {
-	return &MLHandler{mlService: mlService}
+func NewMLHandler(imageService *services.ImageService) *MLHandler {
+	return &MLHandler{imageService: imageService}
 }
 
-func (h *MLHandler) Upscale(c *gin.Context) {
-	file, err := c.FormFile("image")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing image"})
+func (h *MLHandler) Process(c *gin.Context) {
+	userID := getUserID(c)
+	if userID == 0 {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
 		return
 	}
 
-	src, err := file.Open()
+	contentFile, err := c.FormFile("image")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open file"})
-		return
-	}
-	defer src.Close()
-
-	data := make([]byte, file.Size)
-	_, err = src.Read(data)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file"})
-		return
-	}
-
-	resultPath, err := h.mlService.UpscaleImage(c.Request.Context(), data, file.Filename)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"result_url": "/uploads/" + resultPath})
-}
-
-func (h *MLHandler) EnhanceFace(c *gin.Context) {
-	file, err := c.FormFile("image")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing image"})
-		return
-	}
-
-	src, err := file.Open()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open file"})
-		return
-	}
-	defer src.Close()
-
-	data := make([]byte, file.Size)
-	_, err = src.Read(data)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file"})
-		return
-	}
-
-	resultPath, err := h.mlService.EnhanceFace(c.Request.Context(), data, file.Filename)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"result_url": "/uploads/" + resultPath})
-}
-
-func (h *MLHandler) Colorize(c *gin.Context) {
-	file, err := c.FormFile("image")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing image"})
-		return
-	}
-
-	src, err := file.Open()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open file"})
-		return
-	}
-	defer src.Close()
-
-	// Читаем данные в переменную `data`
-	data, err := io.ReadAll(src)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file"})
-		return
-	}
-
-	resultURL, err := h.mlService.ColorizeImage(c.Request.Context(), data, file.Filename)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"result_url": resultURL})
-}
-
-func (h *MLHandler) StyleTransferAdaIN(c *gin.Context) {
-	contentFile, err := c.FormFile("content")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing content image"})
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'image' (content) обязательно"})
 		return
 	}
 
 	styleFile, err := c.FormFile("style")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing style image"})
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'style' обязательно для NST"})
 		return
 	}
 
-	// Читаем content
-	contentSrc, err := contentFile.Open()
+	img, err := h.imageService.Process(c.Request.Context(), userID, contentFile, styleFile)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open content"})
-		return
-	}
-	defer contentSrc.Close()
-	contentData, err := io.ReadAll(contentSrc)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read content"})
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Читаем style
-	styleSrc, err := styleFile.Open()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open style"})
-		return
-	}
-	defer styleSrc.Close()
-	styleData, err := io.ReadAll(styleSrc)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read style"})
+	c.JSON(http.StatusOK, img)
+}
+
+func (h *MLHandler) Upscale(c *gin.Context) {
+	userID := getUserID(c)
+	if userID == 0 {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
 		return
 	}
 
-	resultURL, err := h.mlService.ApplyStyle(
-		c.Request.Context(),
-		contentData,
-		styleData,
-		contentFile.Filename,
-		styleFile.Filename,
-	)
+	file, err := c.FormFile("image")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'image' обязательно"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"result_url": resultURL})
+	scaleStr := c.DefaultPostForm("scale", "4")
+	scale, err := strconv.Atoi(scaleStr)
+	if err != nil || (scale != 2 && scale != 4) {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "scale must be 2 or 4"})
+		return
+	}
+
+	img, err := h.imageService.Upscale(c.Request.Context(), userID, file, scale)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, img)
+}
+
+// Enhance — улучшение лица / качества
+func (h *MLHandler) Enhance(c *gin.Context) {
+	userID := getUserID(c)
+	if userID == 0 {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
+		return
+	}
+
+	file, err := c.FormFile("image")
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'image' обязательно"})
+		return
+	}
+
+	img, err := h.imageService.Enhance(c.Request.Context(), userID, file)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, img)
+}
+
+// PostProcess — постобработка (шум, цвет и т.д.)
+func (h *MLHandler) PostProcess(c *gin.Context) {
+	userID := getUserID(c)
+	if userID == 0 {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
+		return
+	}
+
+	file, err := c.FormFile("image")
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'image' обязательно"})
+		return
+	}
+
+	img, err := h.imageService.PostProcess(c.Request.Context(), userID, file)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, img)
+}
+
+// StyleTransfer — перенос стиля (требует два файла)
+func (h *MLHandler) StyleTransfer(c *gin.Context) {
+	userID := getUserID(c)
+	if userID == 0 {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
+		return
+	}
+
+	contentFile, err := c.FormFile("image")
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'image' (content) обязательно"})
+		return
+	}
+
+	styleFile, err := c.FormFile("style")
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'style' обязательно для переноса стиля"})
+		return
+	}
+
+	img, err := h.imageService.StyleTransfer(c.Request.Context(), userID, contentFile, styleFile)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, img)
+}
+
+// Вспомогательная функция (должна быть в middleware/auth.go или здесь)
+func getUserID(c *gin.Context) int {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		return 0
+	}
+	if id, ok := userID.(int); ok {
+		return id
+	}
+	return 0
 }

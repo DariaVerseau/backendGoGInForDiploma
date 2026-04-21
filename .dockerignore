@@ -1,0 +1,10 @@
+# Исключаем только ненужное
+.git
+.gitignore
+.vscode/
+.idea/
+uploads/
+results/
+inputs/
+*.log
+*.tmp

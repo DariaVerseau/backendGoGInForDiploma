@@ -5,6 +5,7 @@ import (
 	"log"
 	"moduleExample/web-service-gin/internal/handlers"
 	"moduleExample/web-service-gin/internal/middleware"
+	"moduleExample/web-service-gin/internal/mlclient"
 	"moduleExample/web-service-gin/internal/repositories"
 	"moduleExample/web-service-gin/internal/services"
 	"moduleExample/web-service-gin/internal/storage"
@@ -13,14 +14,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
 )
 
 func main() {
-	if err := godotenv.Load(); err != nil {
-		log.Fatal("Ошибка загрузки .env файла")
-	}
-
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
 		log.Fatal("❌ JWT_SECRET не загружен из .env!")
@@ -50,19 +46,43 @@ func main() {
 	uploadDir := "./uploads"
 	fileStorage := storage.NewLocalStorage(uploadDir)
 
+	// Создаём таблицы, если не существуют
+	_, err = db.Exec(ctx, `
+	CREATE TABLE IF NOT EXISTS users (
+		id SERIAL PRIMARY KEY,
+		email TEXT UNIQUE NOT NULL,
+		password TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT NOW()
+	);
+
+	CREATE TABLE IF NOT EXISTS images (
+		id TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		title TEXT NOT NULL,
+		url TEXT NOT NULL,
+		style TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT NOW()
+	);
+	`)
+	if err != nil {
+		log.Fatal("Не удалось создать таблицы:", err)
+	}
+
 	// === 2. Инициализация репозиториев ===
 	userRepo := repositories.NewUserRepository(db)
 	imageRepo := repositories.NewImageRepository(db)
 
 	// === 3. Инициализация сервисов ===
+	mlClient := mlclient.NewClient()
 	authService := services.NewAuthService(userRepo)
-	imageService := services.NewImageService(imageRepo, fileStorage)
-	mlService := services.NewMLService(fileStorage, uploadDir)
+	imageService := services.NewImageService(imageRepo, fileStorage, mlClient)
+	// mlService := services.NewMLService(fileStorage, uploadDir)
+	
 
 	// === 4. Инициализация хендлеров ===
 	authHandler := handlers.NewAuthHandler(authService)
 	imageHandler := handlers.NewImageHandler(imageService)
-	mlHandler := handlers.NewMLHandler(mlService)
+	mlHandler := handlers.NewMLHandler(imageService)
 
 	// === 5. Настройка Gin-роутера ===
 	router := gin.Default()
@@ -84,10 +104,10 @@ func main() {
 
 		// ML эндпоинты
 		protected.POST("/ml/upscale", mlHandler.Upscale)
-		protected.POST("/ml/enhance", mlHandler.EnhanceFace)
-		protected.POST("/ml/upscale", mlHandler.Upscale)                   // → /process
-		protected.POST("/ml/colorize", mlHandler.Colorize)                 // → /colorize
-		protected.POST("/ml/style_transfer", mlHandler.StyleTransferAdaIN) // → /style_transfer_adain
+		protected.POST("/ml/process", mlHandler.Process)
+		protected.POST("/ml/enhance", mlHandler.Enhance)
+		protected.POST("/ml/postprocess", mlHandler.PostProcess)
+		protected.POST("/ml/style_transfer", mlHandler.StyleTransfer) // → /style_transfer_adain
 	}
 
 	// === 6. Запуск сервера ===

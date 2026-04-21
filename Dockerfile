@@ -1,34 +1,36 @@
 # Build stage
-FROM golang:1.22 AS builder
+FROM golang:1.25.3 AS builder
 
 WORKDIR /app
 
-# Копируем зависимости и скачиваем модули
+# 1. Копируем только зависимости → максимизируем кэширование
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Копируем исходный код
+# 2. Копируем исходный код
+#    Используем .dockerignore, чтобы исключить ненужное
 COPY . .
 
-# Собираем бинарник (CGO отключён для совместимости с Alpine)
-RUN CGO_ENABLED=0 GOOS=linux go build -o main .
+# 3. Собираем бинарник
+RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/server
 
 # Final stage
 FROM alpine:latest
 
-# Устанавливаем ca-certificates для HTTPS-запросов к ml-service
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates tzdata && \
+    update-ca-certificates
 
 WORKDIR /root/
 
-# Копируем бинарник из builder-стадии
+# Копируем бинарник
 COPY --from=builder /app/main .
 
-# Создаём папку для загрузок (должна совпадать с uploadDir в main.go)
+# Создаём папку для загрузок
 RUN mkdir -p ./uploads
 
-# Экспонируем порт (внутри контейнера)
 EXPOSE 8080
 
-# Запускаем приложение
+# Запускаем с явной временной зоной (опционально, но рекомендуется)
+ENV TZ=Europe/Moscow
+
 CMD ["./main"]
