@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"moduleExample/web-service-gin/internal/services"
 	"net/http"
 
@@ -21,16 +22,30 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		Password string `json:"password" binding:"required,min=6"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("Register validation error: %v", err)
 		c.AbortWithStatusJSON(400, gin.H{"error": "некорректные данные"})
 		return
 	}
 
-	if err := h.authService.Register(c.Request.Context(), req.Email, req.Password); err != nil {
+	// Регистрируем пользователя и получаем его ID
+	userID, err := h.authService.Register(c.Request.Context(), req.Email, req.Password)
+	if err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.Status(201)
+	// Генерируем токен для нового пользователя
+	token, _, err := h.authService.Login(req.Email, req.Password)
+	if err != nil {
+		c.AbortWithStatusJSON(500, gin.H{"error": "failed to generate token"})
+		return
+	}
+
+	// Возвращаем и токен, и user_id
+	c.JSON(201, gin.H{
+		"token":   token,
+		"user_id": userID,
+	})
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
@@ -43,11 +58,15 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	token, err := h.authService.Login(req.Email, req.Password)
+	token, userID, err := h.authService.Login(req.Email, req.Password)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"token": token})
+	// Возвращаем и токен, и user_id
+	c.JSON(http.StatusOK, gin.H{
+		"token":   token,
+		"user_id": userID,
+	})
 }

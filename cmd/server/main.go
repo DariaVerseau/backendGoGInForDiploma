@@ -9,12 +9,16 @@ import (
 	"moduleExample/web-service-gin/internal/repositories"
 	"moduleExample/web-service-gin/internal/services"
 	"moduleExample/web-service-gin/internal/storage"
+	"net/http"
 	"os"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var db *pgxpool.Pool // Глобальная переменная для health-check'ов
 
 func main() {
 	secret := os.Getenv("JWT_SECRET")
@@ -29,7 +33,8 @@ func main() {
 		log.Fatal("DATABASE_URL is not set")
 	}
 
-	db, err := pgxpool.New(context.Background(), dbURL)
+	var err error
+	db, err = pgxpool.New(context.Background(), dbURL)
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
@@ -76,8 +81,6 @@ func main() {
 	mlClient := mlclient.NewClient()
 	authService := services.NewAuthService(userRepo)
 	imageService := services.NewImageService(imageRepo, fileStorage, mlClient)
-	// mlService := services.NewMLService(fileStorage, uploadDir)
-	
 
 	// === 4. Инициализация хендлеров ===
 	authHandler := handlers.NewAuthHandler(authService)
@@ -87,15 +90,29 @@ func main() {
 	// === 5. Настройка Gin-роутера ===
 	router := gin.Default()
 
+	// ⚠️ CORS должен быть ОДИН раз и ПЕРВЫМ middleware
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:3000"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Accept"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
+
 	// Обслуживаем статические файлы
-	router.Static("/uploads", "./uploads") // ← добавь эту строку
+	router.Static("/uploads", "./uploads")
+	router.Static("/styles/preview", "./styles/preview")
 
-	// Публичные роуты
-	router.POST("/register", authHandler.Register)
-	router.POST("/login", authHandler.Login)
+	// Единая API-группа с версией
+	v1 := router.Group("/api/v1")
 
-	// Защищённые роуты (требуют JWT)
-	protected := router.Group("/")
+	// Публичные роуты (без middleware)
+	v1.POST("/register", authHandler.Register)
+	v1.POST("/login", authHandler.Login)
+
+	// Защищённые роуты (с middleware)
+	protected := v1.Group("")
 	protected.Use(middleware.AuthMiddleware())
 	{
 		protected.GET("/images/:id", imageHandler.GetImage)
@@ -107,8 +124,20 @@ func main() {
 		protected.POST("/ml/process", mlHandler.Process)
 		protected.POST("/ml/enhance", mlHandler.Enhance)
 		protected.POST("/ml/postprocess", mlHandler.PostProcess)
-		protected.POST("/ml/style_transfer", mlHandler.StyleTransfer) // → /style_transfer_adain
+		protected.POST("/ml/style_transfer", mlHandler.StyleTransfer)
 	}
+
+	// Публичные health-checks (без версии!)
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "go-api"})
+	})
+	router.GET("/ready", func(c *gin.Context) {
+		if err := checkDBConnection(); err != nil {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "db not ready"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ready", "database": "connected"})
+	})
 
 	// === 6. Запуск сервера ===
 	port := os.Getenv("SERVER_PORT")
@@ -120,4 +149,10 @@ func main() {
 	if err := router.Run(":" + port); err != nil {
 		log.Fatal("Server failed to start:", err)
 	}
+}
+
+func checkDBConnection() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return db.Ping(ctx)
 }

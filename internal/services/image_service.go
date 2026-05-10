@@ -154,10 +154,9 @@ func (s *ImageService) processML(
 	ctx context.Context,
 	userID int,
 	contentFile *multipart.FileHeader,
-	styleFile *multipart.FileHeader,
+	styleName string,
 	op mlOperation,
 ) (*models.Image, error) {
-	// Читаем content
 	contentData, err := readFile(contentFile)
 	if err != nil {
 		return nil, err
@@ -165,25 +164,22 @@ func (s *ImageService) processML(
 
 	var resultData []byte
 
-	if op.needsStyle {
-		if styleFile == nil {
-			return nil, errors.New("требуется стиль-файл для переноса стиля")
-		}
-		styleData, err := readFile(styleFile)
-		if err != nil {
-			return nil, err
-		}
-		resultData, err = s.mlClient.StyleTransfer(ctx, contentData, styleData, contentFile.Filename, styleFile.Filename)
+	// Все ML-операции теперь используют PostFileWithFields или специальный вызов для NST
+	if op.endpoint == "/style_transfer_adain" {
+		// Для AdaIN передаём стиль как строку
+		resultData, err = s.mlClient.StyleTransfer(ctx, contentData, contentFile.Filename, styleName)
+	} else if len(op.params) > 0 {
+		resultData, err = s.mlClient.PostFileWithFields(ctx, op.endpoint, "image", contentFile.Filename, contentData, op.params)
 	} else {
-		if len(op.params) > 0 {
-			resultData, err = s.mlClient.PostFileWithFields(ctx, op.endpoint, "image", contentFile.Filename, contentData, op.params)
-		} else {
-			resultData, err = s.mlClient.PostFile(ctx, op.endpoint, "image", contentFile.Filename, contentData)
-		}
+		resultData, err = s.mlClient.PostFile(ctx, op.endpoint, "image", contentFile.Filename, contentData)
 	}
 
 	if err != nil {
 		return nil, fmt.Errorf("ошибка ML-обработки %s: %w", op.endpoint, err)
+	}
+
+	if len(resultData) == 0 {
+		return nil, fmt.Errorf("ML-сервис %s вернул пустой ответ", op.endpoint)
 	}
 
 	return s.SaveMLResult(ctx, userID, resultData, contentFile.Filename, op.title, op.styleTag)
@@ -209,7 +205,7 @@ func (s *ImageService) Upscale(ctx context.Context, userID int, file *multipart.
 	if scale != 2 && scale != 4 {
 		return nil, errors.New("scale must be 2 or 4")
 	}
-	return s.processML(ctx, userID, file, nil, mlOperation{
+	return s.processML(ctx, userID, file, "", mlOperation{
 		endpoint: "/upscale",
 		title:    fmt.Sprintf("Upscaled x%d", scale),
 		styleTag: fmt.Sprintf("upscale_x%d", scale),
@@ -218,7 +214,7 @@ func (s *ImageService) Upscale(ctx context.Context, userID int, file *multipart.
 }
 
 func (s *ImageService) Enhance(ctx context.Context, userID int, file *multipart.FileHeader) (*models.Image, error) {
-	return s.processML(ctx, userID, file, nil, mlOperation{
+	return s.processML(ctx, userID, file, "", mlOperation{
 		endpoint: "/enhance",
 		title:    "Enhanced Image",
 		styleTag: "enhance",
@@ -226,22 +222,94 @@ func (s *ImageService) Enhance(ctx context.Context, userID int, file *multipart.
 }
 
 func (s *ImageService) PostProcess(ctx context.Context, userID int, file *multipart.FileHeader) (*models.Image, error) {
-	return s.processML(ctx, userID, file, nil, mlOperation{
+	return s.processML(ctx, userID, file, "", mlOperation{
 		endpoint: "/postprocess",
 		title:    "Postprocessed Image",
 		styleTag: "postprocess",
 	})
 }
 
-func (s *ImageService) StyleTransfer(ctx context.Context, userID int, contentFile, styleFile *multipart.FileHeader) (*models.Image, error) {
-	return s.processML(ctx, userID, contentFile, styleFile, mlOperation{
-		endpoint:   "/style_transfer_adain",
-		title:      "Styled Image",
-		styleTag:   "style_transfer",
-		needsStyle: true,
-	})
+// Передаём имя стиля как строку
+func (s *ImageService) StyleTransfer(
+	ctx context.Context,
+	userID int,
+	contentFile *multipart.FileHeader,
+	styleName string,
+) (*models.Image, error) {
+	contentData, err := readFile(contentFile)
+	if err != nil {
+		return nil, err
+	}
+
+	// Отправляем content как файл, а style как строку
+	resultData, err := s.mlClient.StyleTransfer(
+		ctx,
+		contentData,
+		contentFile.Filename,
+		styleName,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка ML-style_transfer: %w", err)
+	}
+
+	return s.SaveMLResult(ctx, userID, resultData, contentFile.Filename, "Styled Image", "style_transfer")
 }
 
-func (s *ImageService) Process(ctx context.Context, userID int, contentFile, styleFile *multipart.FileHeader) (*models.Image, error) {
-	return s.StyleTransfer(ctx, userID, contentFile, styleFile)
+// BasicStyleTransfer применяет базовый алгоритм переноса стиля (не AdaIN).
+func (s *ImageService) BasicStyleTransfer(
+	ctx context.Context,
+	userID int,
+	contentFile *multipart.FileHeader,
+	styleName string,
+) (*models.Image, error) {
+	supportedStyles := map[string]bool{
+		"vangogh":    true,
+		"picasso":    true,
+		"monet":      true,
+		"monet2":     true,
+		"erinHanson": true,
+		"sketch":     true,
+	}
+	if !supportedStyles[styleName] {
+		return nil, fmt.Errorf("неподдерживаемый стиль: %s", styleName)
+	}
+
+	contentData, err := readFile(contentFile)
+	if err != nil {
+		return nil, err
+	}
+
+	resultData, err := s.mlClient.BasicStyleTransfer(ctx, contentData, contentFile.Filename, styleName)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка базового NST: %w", err)
+	}
+
+	return s.SaveMLResult(ctx, userID, resultData, contentFile.Filename, "Basic Styled Image", "basic_nst")
+}
+
+func (s *ImageService) Colorize(ctx context.Context, userID int, file *multipart.FileHeader) (*models.Image, error) {
+	if file.Size > 10<<20 {
+		return nil, errors.New("файл слишком большой (макс. 10 МБ)")
+	}
+
+	contentData, err := readFile(file)
+	if err != nil {
+		return nil, err
+	}
+
+	resultData, err := s.mlClient.PostFile(ctx, "/colorize", "image", file.Filename, contentData)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка colorize: %w", err)
+	}
+
+	return s.SaveMLResult(ctx, userID, resultData, file.Filename, "Colorized Image", "colorize")
+}
+
+func (s *ImageService) Process(
+	ctx context.Context,
+	userID int,
+	contentFile *multipart.FileHeader,
+	styleName string,
+) (*models.Image, error) {
+	return s.BasicStyleTransfer(ctx, userID, contentFile, styleName)
 }

@@ -21,11 +21,18 @@ func NewUserRepository(db *pgxpool.Pool) *UserRepository {
 	return &UserRepository{db: db}
 }
 
-func (r *UserRepository) Create(ctx context.Context, email, passwordHash string) error {
-	_, err := r.db.Exec(ctx,
-		"INSERT INTO users (email, password) VALUES ($1, $2)",
-		email, passwordHash)
-	return err
+// Create теперь возвращает ID созданного пользователя
+func (r *UserRepository) Create(ctx context.Context, email, passwordHash string) (int64, error) {
+	var id int64
+	err := r.db.QueryRow(ctx,
+		"INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id",
+		email, passwordHash).Scan(&id)
+	if err != nil {
+		log.Printf("❌ Ошибка создания пользователя: %v", err)
+		return 0, err
+	}
+	log.Printf("✅ Создан пользователь: ID=%d, email=%s", id, email)
+	return id, nil
 }
 
 func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {
@@ -38,11 +45,26 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*models
 	if err != nil {
 		log.Printf("❌ Ошибка поиска: %v", err)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrNotFound 
+			return nil, ErrNotFound
 		}
 		return nil, err
 	}
 
 	log.Printf("✅ Найден пользователь: ID=%d", user.ID)
+	return &user, nil
+}
+
+// Дополнительный метод для получения пользователя по ID 
+func (r *UserRepository) FindByID(ctx context.Context, id int64) (*models.User, error) {
+	var user models.User
+	err := r.db.QueryRow(ctx,
+		"SELECT id, email, password FROM users WHERE id = $1",
+		id).Scan(&user.ID, &user.Email, &user.Password)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
 	return &user, nil
 }

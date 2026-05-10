@@ -15,13 +15,17 @@ import (
 const MLServiceURL = "http://ml-service:8000"
 
 type Client struct {
-	client *http.Client
+	client            *http.Client
+	longTimeoutClient *http.Client
 }
 
 func NewClient() *Client {
 	return &Client{
 		client: &http.Client{
-			Timeout: 90 * time.Second,
+			Timeout: 1000 * time.Second,
+		},
+		longTimeoutClient: &http.Client{
+			Timeout: 600 * time.Second, // 10 минут для базового NST
 		},
 	}
 }
@@ -90,25 +94,55 @@ func (c *Client) PostFile(ctx context.Context, endpoint, paramName, filename str
 	return c.PostFileWithFields(ctx, endpoint, paramName, filename, data, nil)
 }
 
-// StyleTransfer отправляет два файла: content и style.
-func (c *Client) StyleTransfer(
+// BasicStyleTransfer применяет базовый перенос стиля через эндпоинт /process.
+// Использует тот же формат запроса, что и StyleTransfer, но другой URL.
+func (c *Client) BasicStyleTransfer(
 	ctx context.Context,
-	contentData, styleData []byte,
+	contentData []byte,
 	contentName, styleName string,
 ) ([]byte, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	if part, err := writer.CreateFormFile("content", filepath.Base(contentName)); err != nil {
+	// Content как файл
+	if part, err := writer.CreateFormFile("image", filepath.Base(contentName)); err != nil {
 		return nil, fmt.Errorf("ошибка создания content-формы: %w", err)
 	} else if _, err := part.Write(contentData); err != nil {
 		return nil, fmt.Errorf("ошибка записи content: %w", err)
 	}
 
-	if part, err := writer.CreateFormFile("style", filepath.Base(styleName)); err != nil {
-		return nil, fmt.Errorf("ошибка создания style-формы: %w", err)
-	} else if _, err := part.Write(styleData); err != nil {
-		return nil, fmt.Errorf("ошибка записи style: %w", err)
+	// Style как строковое поле
+	if err := writer.WriteField("style", styleName); err != nil {
+		return nil, fmt.Errorf("ошибка записи поля style: %w", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("ошибка закрытия формы basic_style_transfer: %w", err)
+	}
+
+	// Отправляем на /process, а не на /style_transfer_adain
+	return c.doRequest(ctx, "POST", MLServiceURL+"/process", body, writer.FormDataContentType())
+}
+
+// StyleTransfer отправляет два файла: content и style.
+func (c *Client) StyleTransfer(
+	ctx context.Context,
+	contentData []byte,
+	contentName, styleName string,
+) ([]byte, error) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	// Content как файл
+	if part, err := writer.CreateFormFile("image", filepath.Base(contentName)); err != nil {
+		return nil, fmt.Errorf("ошибка создания content-формы: %w", err)
+	} else if _, err := part.Write(contentData); err != nil {
+		return nil, fmt.Errorf("ошибка записи content: %w", err)
+	}
+
+	// Style как строковое поле
+	if err := writer.WriteField("style", styleName); err != nil {
+		return nil, fmt.Errorf("ошибка записи поля style: %w", err)
 	}
 
 	if err := writer.Close(); err != nil {

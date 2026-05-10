@@ -25,17 +25,13 @@ func (h *MLHandler) Process(c *gin.Context) {
 
 	contentFile, err := c.FormFile("image")
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'image' (content) обязательно"})
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'image' обязательно"})
 		return
 	}
 
-	styleFile, err := c.FormFile("style")
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'style' обязательно для NST"})
-		return
-	}
+	styleName := c.DefaultPostForm("style", "vangogh")
 
-	img, err := h.imageService.Process(c.Request.Context(), userID, contentFile, styleFile)
+	img, err := h.imageService.Process(c.Request.Context(), userID, contentFile, styleName)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -119,7 +115,7 @@ func (h *MLHandler) PostProcess(c *gin.Context) {
 	c.JSON(http.StatusOK, img)
 }
 
-// StyleTransfer — перенос стиля (требует два файла)
+// StyleTransfer — перенос стиля
 func (h *MLHandler) StyleTransfer(c *gin.Context) {
 	userID := getUserID(c)
 	if userID == 0 {
@@ -129,17 +125,36 @@ func (h *MLHandler) StyleTransfer(c *gin.Context) {
 
 	contentFile, err := c.FormFile("image")
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'image' (content) обязательно"})
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'image' обязательно"})
 		return
 	}
 
-	styleFile, err := c.FormFile("style")
+	// Получаем название стиля как СТРОКУ, а не файл
+	styleName := c.DefaultPostForm("style", "vangogh")
+
+	img, err := h.imageService.StyleTransfer(c.Request.Context(), userID, contentFile, styleName)
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'style' обязательно для переноса стиля"})
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	img, err := h.imageService.StyleTransfer(c.Request.Context(), userID, contentFile, styleFile)
+	c.JSON(http.StatusOK, img)
+}
+
+func (h *MLHandler) Colorize(c *gin.Context) {
+	userID := getUserID(c)
+	if userID == 0 {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
+		return
+	}
+
+	file, err := c.FormFile("image")
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'image' обязательно"})
+		return
+	}
+
+	img, err := h.imageService.Colorize(c.Request.Context(), userID, file)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
