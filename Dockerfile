@@ -20,7 +20,7 @@ FROM alpine:latest
 RUN apk --no-cache add ca-certificates tzdata && \
     update-ca-certificates
 
-WORKDIR /root/
+WORKDIR /app 
 
 # Копируем бинарник
 COPY --from=builder /app/main .

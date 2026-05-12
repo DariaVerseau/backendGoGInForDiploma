@@ -33,7 +33,9 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		// ✅ Сохраняем user_id и сам токен в контексте
 		c.Set("user_id", claims.UserID)
+		c.Set("token", authHeader) // Сохраняем оригинальный заголовок Authorization
 		c.Next()
 	}
 }

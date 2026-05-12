@@ -63,9 +63,11 @@ func (s *ImageService) UploadImage(ctx context.Context, userID int, file *multip
 	if title == "" {
 		return nil, errors.New("название обязательно")
 	}
+
 	if style == "" {
-		return nil, errors.New("стиль обязателен")
+		style = "original"
 	}
+
 	if file.Size > 10<<20 {
 		return nil, errors.New("файл слишком большой (макс. 10 МБ)")
 	}
@@ -147,7 +149,7 @@ type mlOperation struct {
 	title      string
 	styleTag   string
 	needsStyle bool
-	params     map[string]string // например: {"scale": "4"}
+	params     map[string]string
 }
 
 func (s *ImageService) processML(
@@ -157,6 +159,10 @@ func (s *ImageService) processML(
 	styleName string,
 	op mlOperation,
 ) (*models.Image, error) {
+	// ❌ Убираем установку токена - не нужно
+	// token := getTokenFromContext(ctx)
+	// s.mlClient.SetAuthToken(token)
+
 	contentData, err := readFile(contentFile)
 	if err != nil {
 		return nil, err
@@ -164,9 +170,7 @@ func (s *ImageService) processML(
 
 	var resultData []byte
 
-	// Все ML-операции теперь используют PostFileWithFields или специальный вызов для NST
 	if op.endpoint == "/style_transfer_adain" {
-		// Для AdaIN передаём стиль как строку
 		resultData, err = s.mlClient.StyleTransfer(ctx, contentData, contentFile.Filename, styleName)
 	} else if len(op.params) > 0 {
 		resultData, err = s.mlClient.PostFileWithFields(ctx, op.endpoint, "image", contentFile.Filename, contentData, op.params)
@@ -199,7 +203,7 @@ func readFile(file *multipart.FileHeader) ([]byte, error) {
 	return data, nil
 }
 
-// === ПУБЛИЧНЫЕ МЕТОДЫ (без дублирования) ===
+// === ПУБЛИЧНЫЕ МЕТОДЫ ===
 
 func (s *ImageService) Upscale(ctx context.Context, userID int, file *multipart.FileHeader, scale int) (*models.Image, error) {
 	if scale != 2 && scale != 4 {
@@ -213,11 +217,15 @@ func (s *ImageService) Upscale(ctx context.Context, userID int, file *multipart.
 	})
 }
 
-func (s *ImageService) Enhance(ctx context.Context, userID int, file *multipart.FileHeader) (*models.Image, error) {
+func (s *ImageService) Enhance(ctx context.Context, userID int, file *multipart.FileHeader, fidelityWeight float64, postprocess bool) (*models.Image, error) {
 	return s.processML(ctx, userID, file, "", mlOperation{
 		endpoint: "/enhance",
 		title:    "Enhanced Image",
 		styleTag: "enhance",
+		params: map[string]string{
+			"fidelity_weight": strconv.FormatFloat(fidelityWeight, 'f', 2, 64),
+			"postprocess":     strconv.FormatBool(postprocess),
+		},
 	})
 }
 
@@ -229,25 +237,22 @@ func (s *ImageService) PostProcess(ctx context.Context, userID int, file *multip
 	})
 }
 
-// Передаём имя стиля как строку
 func (s *ImageService) StyleTransfer(
 	ctx context.Context,
 	userID int,
 	contentFile *multipart.FileHeader,
 	styleName string,
 ) (*models.Image, error) {
+	// ❌ Убираем установку токена
+	// token := getTokenFromContext(ctx)
+	// s.mlClient.SetAuthToken(token)
+
 	contentData, err := readFile(contentFile)
 	if err != nil {
 		return nil, err
 	}
 
-	// Отправляем content как файл, а style как строку
-	resultData, err := s.mlClient.StyleTransfer(
-		ctx,
-		contentData,
-		contentFile.Filename,
-		styleName,
-	)
+	resultData, err := s.mlClient.StyleTransfer(ctx, contentData, contentFile.Filename, styleName)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка ML-style_transfer: %w", err)
 	}
@@ -255,13 +260,16 @@ func (s *ImageService) StyleTransfer(
 	return s.SaveMLResult(ctx, userID, resultData, contentFile.Filename, "Styled Image", "style_transfer")
 }
 
-// BasicStyleTransfer применяет базовый алгоритм переноса стиля (не AdaIN).
 func (s *ImageService) BasicStyleTransfer(
 	ctx context.Context,
 	userID int,
 	contentFile *multipart.FileHeader,
 	styleName string,
 ) (*models.Image, error) {
+	// ❌ Убираем установку токена
+	// token := getTokenFromContext(ctx)
+	// s.mlClient.SetAuthToken(token)
+
 	supportedStyles := map[string]bool{
 		"vangogh":    true,
 		"picasso":    true,
@@ -287,7 +295,24 @@ func (s *ImageService) BasicStyleTransfer(
 	return s.SaveMLResult(ctx, userID, resultData, contentFile.Filename, "Basic Styled Image", "basic_nst")
 }
 
+func (s *ImageService) PostProcessWithParams(ctx context.Context, userID int, file *multipart.FileHeader, params map[string]string) (*models.Image, error) {
+	// ❌ Убираем установку токена
+	// token := getTokenFromContext(ctx)
+	// s.mlClient.SetAuthToken(token)
+
+	return s.processML(ctx, userID, file, "", mlOperation{
+		endpoint: "/postprocess",
+		title:    "Postprocessed Image",
+		styleTag: "postprocess",
+		params:   params,
+	})
+}
+
 func (s *ImageService) Colorize(ctx context.Context, userID int, file *multipart.FileHeader) (*models.Image, error) {
+	// ❌ Убираем установку токена
+	// token := getTokenFromContext(ctx)
+	// s.mlClient.SetAuthToken(token)
+
 	if file.Size > 10<<20 {
 		return nil, errors.New("файл слишком большой (макс. 10 МБ)")
 	}

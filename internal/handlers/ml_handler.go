@@ -16,14 +16,30 @@ func NewMLHandler(imageService *services.ImageService) *MLHandler {
 	return &MLHandler{imageService: imageService}
 }
 
+// getUserIDFromContext получает user_id из Gin контекста
+func getUserIDFromContext(c *gin.Context) int {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		return 0
+	}
+	switch v := userID.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	default:
+		return 0
+	}
+}
+
 func (h *MLHandler) Process(c *gin.Context) {
-	userID := getUserID(c)
+	userID := getUserIDFromContext(c)
 	if userID == 0 {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
 		return
 	}
 
-	contentFile, err := c.FormFile("image")
+	file, err := c.FormFile("image")
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'image' обязательно"})
 		return
@@ -31,17 +47,16 @@ func (h *MLHandler) Process(c *gin.Context) {
 
 	styleName := c.DefaultPostForm("style", "vangogh")
 
-	img, err := h.imageService.Process(c.Request.Context(), userID, contentFile, styleName)
+	img, err := h.imageService.Process(c.Request.Context(), userID, file, styleName)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, img)
 }
 
 func (h *MLHandler) Upscale(c *gin.Context) {
-	userID := getUserID(c)
+	userID := getUserIDFromContext(c)
 	if userID == 0 {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
 		return
@@ -65,13 +80,11 @@ func (h *MLHandler) Upscale(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, img)
 }
 
-// Enhance — улучшение лица / качества
 func (h *MLHandler) Enhance(c *gin.Context) {
-	userID := getUserID(c)
+	userID := getUserIDFromContext(c)
 	if userID == 0 {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
 		return
@@ -83,18 +96,23 @@ func (h *MLHandler) Enhance(c *gin.Context) {
 		return
 	}
 
-	img, err := h.imageService.Enhance(c.Request.Context(), userID, file)
+	fidelityWeightStr := c.DefaultPostForm("fidelity_weight", "0.5")
+	postprocessStr := c.DefaultPostForm("postprocess", "true")
+
+	fidelityWeight, _ := strconv.ParseFloat(fidelityWeightStr, 64)
+	postprocess := postprocessStr == "true"
+
+	// ✅ Просто используем c.Request.Context() - без токена
+	img, err := h.imageService.Enhance(c.Request.Context(), userID, file, fidelityWeight, postprocess)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, img)
 }
 
-// PostProcess — постобработка (шум, цвет и т.д.)
 func (h *MLHandler) PostProcess(c *gin.Context) {
-	userID := getUserID(c)
+	userID := getUserIDFromContext(c)
 	if userID == 0 {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
 		return
@@ -111,38 +129,34 @@ func (h *MLHandler) PostProcess(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, img)
 }
 
-// StyleTransfer — перенос стиля
 func (h *MLHandler) StyleTransfer(c *gin.Context) {
-	userID := getUserID(c)
+	userID := getUserIDFromContext(c)
 	if userID == 0 {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
 		return
 	}
 
-	contentFile, err := c.FormFile("image")
+	file, err := c.FormFile("image")
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'image' обязательно"})
 		return
 	}
 
-	// Получаем название стиля как СТРОКУ, а не файл
 	styleName := c.DefaultPostForm("style", "vangogh")
 
-	img, err := h.imageService.StyleTransfer(c.Request.Context(), userID, contentFile, styleName)
+	img, err := h.imageService.StyleTransfer(c.Request.Context(), userID, file, styleName)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, img)
 }
 
 func (h *MLHandler) Colorize(c *gin.Context) {
-	userID := getUserID(c)
+	userID := getUserIDFromContext(c)
 	if userID == 0 {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
 		return
@@ -159,18 +173,5 @@ func (h *MLHandler) Colorize(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, img)
-}
-
-// Вспомогательная функция (должна быть в middleware/auth.go или здесь)
-func getUserID(c *gin.Context) int {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		return 0
-	}
-	if id, ok := userID.(int); ok {
-		return id
-	}
-	return 0
 }

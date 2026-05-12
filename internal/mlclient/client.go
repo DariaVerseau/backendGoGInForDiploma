@@ -25,7 +25,7 @@ func NewClient() *Client {
 			Timeout: 1000 * time.Second,
 		},
 		longTimeoutClient: &http.Client{
-			Timeout: 600 * time.Second, // 10 минут для базового NST
+			Timeout: 600 * time.Second,
 		},
 	}
 }
@@ -39,6 +39,9 @@ func (c *Client) doRequest(ctx context.Context, method, url string, body io.Read
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
+
+	// НЕ передаём токен - ML сервис не требует авторизации
+	// ML работает во внутренней сети Docker
 
 	resp, err := c.client.Do(req)
 	if err != nil {
