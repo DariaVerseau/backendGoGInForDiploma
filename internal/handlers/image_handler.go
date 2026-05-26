@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"moduleExample/web-service-gin/internal/services"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -264,13 +265,28 @@ func (h *ImageHandler) StyleTransfer(c *gin.Context) {
 		return
 	}
 
+	// Читаем ДОПОЛНИТЕЛЬНЫЕ параметры
+	alphaStr := c.DefaultPostForm("alpha", "1.0")
+	preserveColorStr := c.DefaultPostForm("preserve_color", "false")
+
+	alpha, _ := strconv.ParseFloat(alphaStr, 32)
+	preserveColor := preserveColorStr == "true"
+
 	authHeader := c.GetHeader("Authorization")
 	ctx := context.WithValue(c.Request.Context(), "token", authHeader)
 
-	result, err := h.imageService.StyleTransfer(ctx, int(userIDInt64), file, style)
+	// Передаём ВСЕ параметры
+	result, err := h.imageService.StyleTransfer(
+		ctx,
+		int(userIDInt64),
+		file,
+		style,
+		float32(alpha),
+		preserveColor,
+	)
 	if err != nil {
 		log.Printf("Ошибка style_transfer: %v", err)
-		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+		c.AbortWithStatusJSON(500, gin.H{"error": err.Error()}) // ← 500 вместо 400
 		return
 	}
 

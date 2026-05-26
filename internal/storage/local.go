@@ -18,6 +18,20 @@ func NewLocalStorage(uploadDir string) *LocalStorage {
 	return &LocalStorage{uploadDir: uploadDir}
 }
 
+func (s *LocalStorage) GetFullPath(relativePath string) string {
+	// Если путь уже абсолютный
+	if filepath.IsAbs(relativePath) {
+		return relativePath
+	}
+	// Иначе добавляем basePath
+	return filepath.Join(s.uploadDir, filepath.Base(relativePath))
+}
+
+// GetBasePath возвращает базовый путь к хранилищу
+func (s *LocalStorage) GetBasePath() string {
+	return s.uploadDir
+}
+
 // Save сохраняет загруженный файл из HTTP-запроса
 func (s *LocalStorage) Save(file *multipart.FileHeader) (string, error) {
 	ext := filepath.Ext(file.Filename)
@@ -40,7 +54,7 @@ func (s *LocalStorage) Save(file *multipart.FileHeader) (string, error) {
 		return "", fmt.Errorf("не удалось записать файл: %w", err)
 	}
 
-	return "/uploads/" + filename, nil
+	return "uploads/" + filename, nil
 }
 
 // SaveBytes сохраняет байты как файл и возвращает URL
@@ -57,5 +71,5 @@ func (s *LocalStorage) SaveBytes(data []byte, originalFilename string) (string, 
 		return "", fmt.Errorf("не удалось сохранить байты в файл: %w", err)
 	}
 
-	return "/uploads/" + filename, nil
+	return "uploads/" + filename, nil
 }

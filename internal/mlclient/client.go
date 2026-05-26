@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
@@ -68,18 +69,25 @@ func (c *Client) PostFileWithFields(
 	fileData []byte,
 	fields map[string]string,
 ) ([]byte, error) {
+	log.Printf("PostFileWithFields: %s", endpoint)
+	log.Printf("URL: %s", MLServiceURL+endpoint)
+	log.Printf("filename: %s, data size: %d", filename, len(fileData))
+
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
 	part, err := writer.CreateFormFile(fileParamName, filepath.Base(filename))
 	if err != nil {
+		log.Printf("CreateFormFile error: %v", err)
 		return nil, fmt.Errorf("ошибка создания файла в форме: %w", err)
 	}
 	if _, err := part.Write(fileData); err != nil {
+		log.Printf("Write error: %v", err)
 		return nil, fmt.Errorf("ошибка записи данных файла: %w", err)
 	}
 
 	for key, value := range fields {
+		log.Printf("Adding field: %s=%s", key, value)
 		if err := writer.WriteField(key, value); err != nil {
 			return nil, fmt.Errorf("ошибка записи поля %s: %w", key, err)
 		}
@@ -89,7 +97,37 @@ func (c *Client) PostFileWithFields(
 		return nil, fmt.Errorf("ошибка закрытия формы: %w", err)
 	}
 
-	return c.doRequest(ctx, "POST", MLServiceURL+endpoint, body, writer.FormDataContentType())
+	log.Printf("Sending request to %s", MLServiceURL+endpoint)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", MLServiceURL+endpoint, body)
+	if err != nil {
+		log.Printf("NewRequest error: %v", err)
+		return nil, err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		log.Printf("Do request error: %v", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	log.Printf("Response status: %d", resp.StatusCode)
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("ReadAll error: %v", err)
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Non-OK status: %d, body: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("ML-сервис вернул статус %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	log.Printf("Response size: %d bytes", len(respBody))
+	return respBody, nil
 }
 
 // PostFile — отправка файла без дополнительных полей.
@@ -127,25 +165,37 @@ func (c *Client) BasicStyleTransfer(
 	return c.doRequest(ctx, "POST", MLServiceURL+"/process", body, writer.FormDataContentType())
 }
 
-// StyleTransfer отправляет два файла: content и style.
+// StyleTransfer отправляет файл + параметры стиля.
 func (c *Client) StyleTransfer(
 	ctx context.Context,
 	contentData []byte,
 	contentName, styleName string,
+	alpha float32,
+	preserveColor bool,
 ) ([]byte, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
 	// Content как файл
-	if part, err := writer.CreateFormFile("image", filepath.Base(contentName)); err != nil {
+	part, err := writer.CreateFormFile("image", filepath.Base(contentName))
+	if err != nil {
 		return nil, fmt.Errorf("ошибка создания content-формы: %w", err)
-	} else if _, err := part.Write(contentData); err != nil {
+	}
+	if _, err := part.Write(contentData); err != nil {
 		return nil, fmt.Errorf("ошибка записи content: %w", err)
 	}
 
-	// Style как строковое поле
+	// Все параметры стиля
 	if err := writer.WriteField("style", styleName); err != nil {
 		return nil, fmt.Errorf("ошибка записи поля style: %w", err)
+	}
+	if err := writer.WriteField("alpha", fmt.Sprintf("%.1f", alpha)); err != nil {
+		return nil, fmt.Errorf("ошибка записи поля alpha: %w", err)
+	}
+	if preserveColor {
+		if err := writer.WriteField("preserve_color", "true"); err != nil {
+			return nil, fmt.Errorf("ошибка записи поля preserve_color: %w", err)
+		}
 	}
 
 	if err := writer.Close(); err != nil {

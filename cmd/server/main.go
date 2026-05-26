@@ -102,7 +102,7 @@ func main() {
 
 	// Обслуживаем статические файлы
 	router.Static("/uploads", "./uploads")
-	router.Static("/styles/preview", "./styles/preview")
+	router.Static("/style", "./style")
 
 	// Единая API-группа с версией
 	v1 := router.Group("/api/v1")
