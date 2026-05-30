@@ -104,7 +104,10 @@ func (s *ImageService) UploadImage(ctx context.Context, userID int, file *multip
 	return img, nil
 }
 
+// SaveMLResult - сохранение результата ML-обработки
 func (s *ImageService) SaveMLResult(ctx context.Context, userID int, imageData []byte, originalFilename, title, style string) (*models.Image, error) {
+	log.Printf("📝 SaveMLResult: userID=%d, title=%s, style=%s, dataSize=%d", userID, title, style, len(imageData))
+
 	if len(imageData) == 0 {
 		return nil, errors.New("данные изображения пусты")
 	}
@@ -119,14 +122,18 @@ func (s *ImageService) SaveMLResult(ctx context.Context, userID int, imageData [
 	if ext == "" {
 		ext = ".png"
 	}
+	log.Printf("📝 Saving with extension: %s", ext)
 
 	url, err := s.storage.SaveBytes(imageData, "ml_"+originalFilename)
 	if err != nil {
+		log.Printf("❌ storage.SaveBytes failed: %v", err)
 		return nil, fmt.Errorf("не удалось сохранить ML-результат: %w", err)
 	}
+	log.Printf("✅ File saved to: %s", url)
 
 	newID, err := uuid.NewRandom()
 	if err != nil {
+		log.Printf("❌ uuid generation failed: %v", err)
 		return nil, fmt.Errorf("ошибка генерации UUID: %w", err)
 	}
 
@@ -137,10 +144,13 @@ func (s *ImageService) SaveMLResult(ctx context.Context, userID int, imageData [
 		URL:    url,
 		Style:  style,
 	}
+	log.Printf("Creating DB record: ID=%s, URL=%s", img.ID, img.URL)
 
 	if err := s.imageRepo.Create(ctx, img); err != nil {
+		log.Printf("DB create failed: %v", err)
 		return nil, fmt.Errorf("не удалось сохранить метаданные ML-результата: %w", err)
 	}
+	log.Printf("SaveMLResult SUCCESS: imageID=%s", img.ID)
 	return img, nil
 }
 
@@ -226,18 +236,6 @@ func (s *ImageService) Upscale(ctx context.Context, userID int, file *multipart.
 		title:    fmt.Sprintf("Upscaled x%d", scale),
 		styleTag: fmt.Sprintf("upscale_x%d", scale),
 		params:   map[string]string{"scale": strconv.Itoa(scale)},
-	})
-}
-
-func (s *ImageService) Enhance(ctx context.Context, userID int, file *multipart.FileHeader, fidelityWeight float64, postprocess bool) (*models.Image, error) {
-	return s.processML(ctx, userID, file, mlOperation{
-		endpoint: "/enhance",
-		title:    "Enhanced Image",
-		styleTag: "enhance",
-		params: map[string]string{
-			"fidelity_weight": strconv.FormatFloat(fidelityWeight, 'f', 2, 64),
-			"postprocess":     strconv.FormatBool(postprocess),
-		},
 	})
 }
 
@@ -344,6 +342,122 @@ func (s *ImageService) Process(
 	return s.BasicStyleTransfer(ctx, userID, contentFile, styleName)
 }
 
+// internal/services/image_service.go
+
+// EnhanceByIDWithOptions - улучшение изображения по ID с расширенными параметрами
+func (s *ImageService) EnhanceByIDWithOptions(
+	ctx context.Context,
+	userID int,
+	imageID string,
+	fidelityWeight float64,
+	postprocess bool,
+	colorize bool,
+) (*models.Image, error) {
+	log.Printf("🔵 EnhanceByIDWithOptions START: userID=%d, imageID=%s, fidelity=%.2f, postprocess=%v, colorize=%v",
+		userID, imageID, fidelityWeight, postprocess, colorize)
+
+	// Получаем данные файла
+	fileData, filename, err := s.getFileDataByImageID(ctx, imageID, userID)
+	if err != nil {
+		log.Printf("❌ getFileDataByImageID failed: %v", err)
+		return nil, err
+	}
+	log.Printf("✅ File data loaded: size=%d bytes, filename=%s", len(fileData), filename)
+
+	// Формируем параметры для ML
+	params := map[string]string{
+		"fidelity_weight": strconv.FormatFloat(fidelityWeight, 'f', 2, 64),
+		"postprocess":     strconv.FormatBool(postprocess),
+		"colorize":        strconv.FormatBool(colorize),
+	}
+
+	// Отправляем в ML сервис
+	log.Printf("🔄 Calling ML service /enhance with params: %v", params)
+	resultData, err := s.mlClient.PostFileWithFields(ctx, "/enhance", "image", filename, fileData, params)
+	if err != nil {
+		log.Printf("❌ ML service call failed: %v", err)
+		return nil, fmt.Errorf("ошибка ML-обработки enhance: %w", err)
+	}
+	log.Printf("✅ ML service returned: %d bytes", len(resultData))
+
+	// Сохраняем результат
+	log.Printf("🔄 Saving ML result...")
+	title := "Enhanced Image"
+	if colorize {
+		title = "Colorized & Enhanced Image"
+	}
+
+	img, err := s.SaveMLResult(ctx, userID, resultData, filename, title, "enhance")
+	if err != nil {
+		log.Printf("❌ SaveMLResult failed: %v", err)
+		return nil, err
+	}
+	log.Printf("✅ EnhanceByIDWithOptions SUCCESS: imageID=%s, url=%s", img.ID, img.URL)
+	return img, nil
+}
+
+// EnhanceByID - улучшение изображения по ID (сохраняем для обратной совместимости)
+func (s *ImageService) EnhanceByID(ctx context.Context, userID int, imageID string, fidelityWeight float64, postprocess bool) (*models.Image, error) {
+	// Вызываем новый метод со значениями по умолчанию
+	return s.EnhanceByIDWithOptions(ctx, userID, imageID, fidelityWeight, postprocess, false)
+}
+
+// EnhanceWithOptions - улучшение изображения с расширенными параметрами (прямая загрузка файла)
+func (s *ImageService) EnhanceWithOptions(
+	ctx context.Context,
+	userID int,
+	file *multipart.FileHeader,
+	fidelityWeight float64,
+	postprocess bool,
+	colorize bool,
+) (*models.Image, error) {
+	log.Printf("🔵 EnhanceWithOptions START: userID=%d, fidelity=%.2f, postprocess=%v, colorize=%v," ,
+		userID, fidelityWeight, postprocess, colorize)
+
+	fileData, err := readFile(file)
+	if err != nil {
+		log.Printf("❌ readFile failed: %v", err)
+		return nil, err
+	}
+	log.Printf("✅ File data loaded: size=%d bytes, filename=%s", len(fileData), file.Filename)
+
+	// Формируем параметры для ML
+	params := map[string]string{
+		"fidelity_weight": strconv.FormatFloat(fidelityWeight, 'f', 2, 64),
+		"postprocess":     strconv.FormatBool(postprocess),
+		"colorize":        strconv.FormatBool(colorize),
+	}
+
+	log.Printf("🔄 Calling ML service /enhance...")
+	resultData, err := s.mlClient.PostFileWithFields(ctx, "/enhance", "image", file.Filename, fileData, params)
+	if err != nil {
+		log.Printf("❌ ML service call failed: %v", err)
+		return nil, fmt.Errorf("ошибка ML-обработки enhance: %w", err)
+	}
+	log.Printf("✅ ML service returned: %d bytes", len(resultData))
+
+	// Сохраняем результат
+	log.Printf("🔄 Saving ML result...")
+	title := "Enhanced Image"
+	if colorize {
+		title = "Colorized & Enhanced Image"
+	}
+
+	img, err := s.SaveMLResult(ctx, userID, resultData, file.Filename, title, "enhance")
+	if err != nil {
+		log.Printf("❌ SaveMLResult failed: %v", err)
+		return nil, err
+	}
+	log.Printf("✅ EnhanceWithOptions SUCCESS: imageID=%s, url=%s", img.ID, img.URL)
+	return img, nil
+}
+
+// Enhance - улучшение изображения (сохраняем для обратной совместимости)
+func (s *ImageService) Enhance(ctx context.Context, userID int, file *multipart.FileHeader, fidelityWeight float64, postprocess bool) (*models.Image, error) {
+	// Вызываем новый метод со значениями по умолчанию
+	return s.EnhanceWithOptions(ctx, userID, file, fidelityWeight, postprocess, false)
+}
+
 // ========== НОВЫЕ МЕТОДЫ ДЛЯ ОБРАБОТКИ ПО ID ==========
 
 // getFileDataByImageID получает данные файла по ID изображения
@@ -406,27 +520,6 @@ func (s *ImageService) UpscaleByID(ctx context.Context, userID int, imageID stri
 	return s.SaveMLResult(ctx, userID, resultData, filename,
 		fmt.Sprintf("Upscaled x%d", scale),
 		fmt.Sprintf("upscale_x%d", scale))
-}
-
-// EnhanceByID - улучшение изображения по ID
-func (s *ImageService) EnhanceByID(ctx context.Context, userID int, imageID string, fidelityWeight float64, postprocess bool) (*models.Image, error) {
-	// Получаем данные файла
-	fileData, filename, err := s.getFileDataByImageID(ctx, imageID, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Отправляем в ML сервис
-	resultData, err := s.mlClient.PostFileWithFields(ctx, "/enhance", "image", filename, fileData, map[string]string{
-		"fidelity_weight": strconv.FormatFloat(fidelityWeight, 'f', 2, 64),
-		"postprocess":     strconv.FormatBool(postprocess),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("ошибка ML-обработки enhance: %w", err)
-	}
-
-	// Сохраняем результат
-	return s.SaveMLResult(ctx, userID, resultData, filename, "Enhanced Image", "enhance")
 }
 
 // PostProcessByID - постобработка изображения по ID

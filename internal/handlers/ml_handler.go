@@ -83,17 +83,30 @@ func (h *MLHandler) Enhance(c *gin.Context) {
 		return
 	}
 
+	// Получаем все параметры
 	fidelityWeightStr := c.DefaultPostForm("fidelity_weight", "0.5")
 	postprocessStr := c.DefaultPostForm("postprocess", "true")
+	colorizeStr := c.DefaultPostForm("colorize", "false")
 
 	fidelityWeight, _ := strconv.ParseFloat(fidelityWeightStr, 64)
 	postprocess := postprocessStr == "true"
+	colorize := colorizeStr == "true"
+
+	log.Printf("Enhance params: fidelity=%.2f, postprocess=%v, colorize=%v,",
+		fidelityWeight, postprocess, colorize)
 
 	imageID := c.PostForm("image_id")
 
 	if imageID != "" {
 		log.Printf("Enhance by ID: %s", imageID)
-		result, err := h.imageService.EnhanceByID(c.Request.Context(), userID, imageID, fidelityWeight, postprocess)
+		result, err := h.imageService.EnhanceByIDWithOptions(
+			c.Request.Context(),
+			userID,
+			imageID,
+			fidelityWeight,
+			postprocess,
+			colorize,
+		)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -108,7 +121,14 @@ func (h *MLHandler) Enhance(c *gin.Context) {
 		return
 	}
 
-	img, err := h.imageService.Enhance(c.Request.Context(), userID, file, fidelityWeight, postprocess)
+	img, err := h.imageService.EnhanceWithOptions(
+		c.Request.Context(),
+		userID,
+		file,
+		fidelityWeight,
+		postprocess,
+		colorize,
+	)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
