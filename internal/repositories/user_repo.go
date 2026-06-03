@@ -54,12 +54,36 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*models
 	return &user, nil
 }
 
-// Дополнительный метод для получения пользователя по ID 
+// Дополнительный метод для получения пользователя по ID
 func (r *UserRepository) FindByID(ctx context.Context, id int64) (*models.User, error) {
 	var user models.User
 	err := r.db.QueryRow(ctx,
 		"SELECT id, email, password FROM users WHERE id = $1",
 		id).Scan(&user.ID, &user.Email, &user.Password)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &user, nil
+}
+
+// internal/repositories/user_repository.go
+
+// UpdatePassword - обновление пароля пользователя
+func (r *UserRepository) UpdatePassword(ctx context.Context, userID int64, newPasswordHash string) error {
+	query := `UPDATE users SET password = $1 WHERE id = $2`
+	_, err := r.db.Exec(ctx, query, newPasswordHash, userID)
+	return err
+}
+
+// GetUserByID - получение пользователя по ID
+func (r *UserRepository) GetUserByID(ctx context.Context, userID int64) (*models.User, error) {
+	var user models.User
+	err := r.db.QueryRow(ctx,
+		"SELECT id, email, password FROM users WHERE id = $1",
+		userID).Scan(&user.ID, &user.Email, &user.Password)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound

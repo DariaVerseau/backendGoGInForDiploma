@@ -3,6 +3,7 @@ package handlers
 import (
 	"log"
 	"moduleExample/web-service-gin/internal/services"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -61,14 +62,56 @@ func (h *ImageHandler) GetImages(c *gin.Context) {
 		return
 	}
 
-	images, err := h.imageService.GetImagesByUser(c.Request.Context(), int(userIDInt64))
+	// ПАРАМЕТРЫ ПАГИНАЦИИ
+	pageStr := c.DefaultQuery("page", "1")
+	limitStr := c.DefaultQuery("limit", "20")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
+		page = 1
+	}
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	offset := (page - 1) * limit
+
+	// ПОЛУЧАЕМ ИЗОБРАЖЕНИЯ С ПАГИНАЦИЕЙ
+	images, err := h.imageService.GetImagesByUserPaginated(
+		c.Request.Context(),
+		int(userIDInt64),
+		limit,
+		offset,
+	)
 	if err != nil {
 		log.Printf("Ошибка получения изображений: %v", err)
 		c.AbortWithStatusJSON(500, gin.H{"error": "ошибка сервера"})
 		return
 	}
 
-	c.JSON(200, images)
+	// ПОЛУЧАЕМ ОБЩЕЕ КОЛИЧЕСТВО
+	total, err := h.imageService.GetImagesCount(c.Request.Context(), int(userIDInt64))
+	if err != nil {
+		log.Printf("Ошибка подсчёта изображений: %v", err)
+		c.AbortWithStatusJSON(500, gin.H{"error": "ошибка сервера"})
+		return
+	}
+
+	totalPages := (total + limit - 1) / limit
+
+	// ✅ ОТВЕТ С ПАГИНАЦИЕЙ
+	c.JSON(200, gin.H{
+		"items":       images,
+		"total":       total,
+		"page":        page,
+		"limit":       limit,
+		"total_pages": totalPages,
+	})
 }
 
 func (h *ImageHandler) PostImage(c *gin.Context) {

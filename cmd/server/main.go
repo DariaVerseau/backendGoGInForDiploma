@@ -115,6 +115,8 @@ func main() {
 	protected := v1.Group("")
 	protected.Use(middleware.AuthMiddleware())
 	{
+		protected.POST("/change-password", authHandler.ChangePassword)
+
 		protected.GET("/images/:id", imageHandler.GetImage)
 		protected.GET("/images", imageHandler.GetImages)
 		protected.POST("/images", imageHandler.UploadImage)

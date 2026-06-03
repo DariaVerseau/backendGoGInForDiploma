@@ -70,3 +70,46 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		"user_id": userID,
 	})
 }
+
+type ChangePasswordRequest struct {
+	OldPassword string `json:"old_password" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required,min=6"`
+}
+
+// internal/handlers/auth_handler.go
+
+func (h *AuthHandler) ChangePassword(c *gin.Context) {
+	// ✅ Получаем userID из контекста
+	userIDInterface, exists := c.Get("user_id")
+	if !exists {
+		c.AbortWithStatusJSON(401, gin.H{"error": "пользователь не авторизован"})
+		return
+	}
+
+	// ✅ ПРЕОБРАЗУЕМ В int64 (это важно!)
+	userID, ok := userIDInterface.(int64)
+	if !ok {
+		c.AbortWithStatusJSON(500, gin.H{"error": "неверный тип ID пользователя"})
+		return
+	}
+
+	var req ChangePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	// ✅ Теперь userID имеет тип int64, можно передавать
+	err := h.authService.ChangePassword(
+		c.Request.Context(),
+		userID,
+		req.OldPassword,
+		req.NewPassword,
+	)
+	if err != nil {
+		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "пароль успешно изменён"})
+}

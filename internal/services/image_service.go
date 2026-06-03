@@ -39,12 +39,18 @@ func NewImageService(
 
 // === ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ===
 
-func (s *ImageService) GetImagesByUser(ctx context.Context, userID int) ([]models.Image, error) {
-	images, err := s.imageRepo.GetByUserID(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("не удалось получить изображения: %w", err)
-	}
-	return images, nil
+// GetImagesByUser - получение изображений пользователя с пагинацией
+func (s *ImageService) GetImagesByUserPaginated(ctx context.Context, userID int, limit, offset int) ([]models.Image, error) {
+    images, err := s.imageRepo.GetByUserIDWithPagination(ctx, userID, limit, offset)
+    if err != nil {
+        return nil, fmt.Errorf("не удалось получить изображения: %w", err)
+    }
+    return images, nil
+}
+
+// GetImagesCount - получение количества изображений пользователя
+func (s *ImageService) GetImagesCount(ctx context.Context, userID int) (int, error) {
+    return s.imageRepo.CountByUserID(ctx, userID)
 }
 
 func (s *ImageService) GetImageByID(ctx context.Context, imageID string, userID int) (*models.Image, error) {
@@ -341,8 +347,6 @@ func (s *ImageService) Process(
 ) (*models.Image, error) {
 	return s.BasicStyleTransfer(ctx, userID, contentFile, styleName)
 }
-
-// internal/services/image_service.go
 
 // EnhanceByIDWithOptions - улучшение изображения по ID с расширенными параметрами
 func (s *ImageService) EnhanceByIDWithOptions(

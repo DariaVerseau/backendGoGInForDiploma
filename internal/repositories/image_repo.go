@@ -60,11 +60,18 @@ func (r *ImageRepository) GetAll(ctx context.Context) ([]models.Image, error) {
 	return images, nil
 }
 
-func (r *ImageRepository) GetByUserID(ctx context.Context, userID int) ([]models.Image, error) {
-	query := `SELECT id, user_id, title, url, style, created_at FROM images WHERE user_id = $1 ORDER BY created_at DESC`
-	rows, err := r.db.Query(ctx, query, userID)
+// GetByUserIDWithPagination - получение изображений пользователя с пагинацией
+func (r *ImageRepository) GetByUserIDWithPagination(ctx context.Context, userID int, limit, offset int) ([]models.Image, error) {
+	query := `
+        SELECT id, user_id, title, url, style, created_at 
+        FROM images 
+        WHERE user_id = $1 
+        ORDER BY created_at DESC 
+        LIMIT $2 OFFSET $3
+    `
+	rows, err := r.db.Query(ctx, query, userID, limit, offset)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query images by user: %w", err)
+		return nil, fmt.Errorf("failed to query images: %w", err)
 	}
 	defer rows.Close()
 
@@ -77,6 +84,13 @@ func (r *ImageRepository) GetByUserID(ctx context.Context, userID int) ([]models
 		images = append(images, *img)
 	}
 	return images, nil
+}
+
+// CountByUserID - подсчёт количества изображений пользователя
+func (r *ImageRepository) CountByUserID(ctx context.Context, userID int) (int, error) {
+	var count int
+	err := r.db.QueryRow(ctx, "SELECT COUNT(*) FROM images WHERE user_id = $1", userID).Scan(&count)
+	return count, err
 }
 
 func (r *ImageRepository) GetByIDAndUser(ctx context.Context, imageID string, userID int) (*models.Image, error) {
