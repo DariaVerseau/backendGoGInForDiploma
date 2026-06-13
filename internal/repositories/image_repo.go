@@ -122,7 +122,6 @@ func (r *ImageRepository) Create(ctx context.Context, img *models.Image) error {
 	query := `INSERT INTO images (id, user_id, title, url, style, created_at) 
 	          VALUES ($1, $2, $3, $4, $5, NOW())`
 
-	// Если style пустой, вставляем NULL
 	var style interface{}
 	if img.Style == "" {
 		style = nil

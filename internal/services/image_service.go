@@ -321,24 +321,6 @@ func (s *ImageService) PostProcessWithParams(ctx context.Context, userID int, fi
 	})
 }
 
-func (s *ImageService) Colorize(ctx context.Context, userID int, file *multipart.FileHeader) (*models.Image, error) {
-	if file.Size > 10<<20 {
-		return nil, errors.New("файл слишком большой (макс. 10 МБ)")
-	}
-
-	contentData, err := readFile(file)
-	if err != nil {
-		return nil, err
-	}
-
-	resultData, err := s.mlClient.PostFile(ctx, "/colorize", "image", file.Filename, contentData)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка colorize: %w", err)
-	}
-
-	return s.SaveMLResult(ctx, userID, resultData, file.Filename, "Colorized Image", "colorize")
-}
-
 func (s *ImageService) Process(
 	ctx context.Context,
 	userID int,

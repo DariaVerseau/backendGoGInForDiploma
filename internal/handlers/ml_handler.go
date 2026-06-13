@@ -257,23 +257,3 @@ func (h *MLHandler) Process(c *gin.Context) {
 	c.JSON(http.StatusOK, img)
 }
 
-func (h *MLHandler) Colorize(c *gin.Context) {
-	userID := getUserIDFromContext(c)
-	if userID == 0 {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
-		return
-	}
-
-	file, err := c.FormFile("image")
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "поле 'image' обязательно"})
-		return
-	}
-
-	img, err := h.imageService.Colorize(c.Request.Context(), userID, file)
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, img)
-}

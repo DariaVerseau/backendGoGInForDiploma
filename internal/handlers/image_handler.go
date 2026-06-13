@@ -62,7 +62,7 @@ func (h *ImageHandler) GetImages(c *gin.Context) {
 		return
 	}
 
-	// ПАРАМЕТРЫ ПАГИНАЦИИ
+	//параметры пагинации
 	pageStr := c.DefaultQuery("page", "1")
 	limitStr := c.DefaultQuery("limit", "20")
 
@@ -81,7 +81,6 @@ func (h *ImageHandler) GetImages(c *gin.Context) {
 
 	offset := (page - 1) * limit
 
-	// ПОЛУЧАЕМ ИЗОБРАЖЕНИЯ С ПАГИНАЦИЕЙ
 	images, err := h.imageService.GetImagesByUserPaginated(
 		c.Request.Context(),
 		int(userIDInt64),
@@ -94,7 +93,6 @@ func (h *ImageHandler) GetImages(c *gin.Context) {
 		return
 	}
 
-	// ПОЛУЧАЕМ ОБЩЕЕ КОЛИЧЕСТВО
 	total, err := h.imageService.GetImagesCount(c.Request.Context(), int(userIDInt64))
 	if err != nil {
 		log.Printf("Ошибка подсчёта изображений: %v", err)
@@ -104,7 +102,7 @@ func (h *ImageHandler) GetImages(c *gin.Context) {
 
 	totalPages := (total + limit - 1) / limit
 
-	// ✅ ОТВЕТ С ПАГИНАЦИЕЙ
+	//ответ с пагинацией
 	c.JSON(200, gin.H{
 		"items":       images,
 		"total":       total,
