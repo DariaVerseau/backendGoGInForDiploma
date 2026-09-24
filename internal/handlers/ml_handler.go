@@ -2,10 +2,11 @@ package handlers
 
 import (
 	"log"
-	"moduleExample/web-service-gin/internal/models"
-	"moduleExample/web-service-gin/internal/services"
 	"net/http"
 	"strconv"
+
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/models"
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/services"
 
 	"github.com/gin-gonic/gin"
 )

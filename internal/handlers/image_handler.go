@@ -2,8 +2,9 @@ package handlers
 
 import (
 	"log"
-	"moduleExample/web-service-gin/internal/services"
 	"strconv"
+
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/services"
 
 	"github.com/gin-gonic/gin"
 )

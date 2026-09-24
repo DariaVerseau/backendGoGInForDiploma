@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"moduleExample/web-service-gin/internal/models"
+
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/models"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"

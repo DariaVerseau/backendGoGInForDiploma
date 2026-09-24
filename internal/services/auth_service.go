@@ -4,21 +4,26 @@ import (
 	"context"
 	"errors"
 	"log"
-	"moduleExample/web-service-gin/internal/auth"
-	"moduleExample/web-service-gin/internal/repositories"
+
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/auth"
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/repositories"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthService struct {
-	userRepo *repositories.UserRepository
+	userRepo     *repositories.UserRepository
+	tokenManager *auth.TokenManager
 }
 
-func NewAuthService(userRepo *repositories.UserRepository) *AuthService {
-	return &AuthService{userRepo: userRepo}
+func NewAuthService(userRepo *repositories.UserRepository, tokenManager *auth.TokenManager) *AuthService {
+	return &AuthService{
+		userRepo:     userRepo,
+		tokenManager: tokenManager,
+	}
 }
 
-// Register теперь возвращает ID созданного пользователя
+// Register возвращает ID созданного пользователя
 func (s *AuthService) Register(ctx context.Context, email, password string) (int64, error) {
 	// Проверка, что email свободен
 	existing, err := s.userRepo.FindByEmail(ctx, email)
@@ -44,25 +49,24 @@ func (s *AuthService) Register(ctx context.Context, email, password string) (int
 	return userID, nil
 }
 
-// Login теперь возвращает токен и ID пользователя
-func (s *AuthService) Login(email, password string) (string, int64, error) {
-	user, err := s.userRepo.FindByEmail(context.Background(), email)
+// Login возвращает токен и ID пользователя
+func (s *AuthService) Login(ctx context.Context, email, password string) (string, int64, error) {
+	user, err := s.userRepo.FindByEmail(ctx, email)
 	if err != nil || user == nil {
 		return "", 0, ErrInvalidCredentials
 	}
 
 	// Сравниваем хэш пароля
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
-		log.Printf("❌ Пароль неверен для email: %s", email)
+		log.Printf("Пароль неверен для email: %s", email)
 		return "", 0, ErrInvalidCredentials
 	}
 
-	token, err := auth.GenerateToken(user.ID)
+	token, err := s.tokenManager.GenerateToken(int64(user.ID))
 	if err != nil {
 		return "", 0, err
 	}
 
-	// 🔧 ИСПРАВЛЕНО: приводим int к int64
 	return token, int64(user.ID), nil
 }
 
@@ -72,7 +76,7 @@ func (s *AuthService) GetUserIDByEmail(email string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// 🔧 ИСПРАВЛЕНО: приводим int к int64
+
 	return int64(user.ID), nil
 }
 
@@ -86,35 +90,33 @@ func (e *ServiceError) Error() string {
 	return e.Message
 }
 
-// ChangePassword - смена пароля пользователя
 func (s *AuthService) ChangePassword(ctx context.Context, userID int64, oldPassword, newPassword string) error {
-    // 1. Получаем пользователя из БД
-    user, err := s.userRepo.GetUserByID(ctx, userID)
-    if err != nil {
-        return errors.New("пользователь не найден")
-    }
+	user, err := s.userRepo.GetUserByID(ctx, userID)
+	if err != nil {
+		return errors.New("пользователь не найден")
+	}
 
-    // 2. Проверяем старый пароль
-    if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)); err != nil {
-        return errors.New("неверный текущий пароль")
-    }
+	// Проверяем старый пароль
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)); err != nil {
+		return errors.New("неверный текущий пароль")
+	}
 
-    // 3.  ПРОВЕРКА: новый пароль не должен совпадать со старым
-    if oldPassword == newPassword {
-        return errors.New("новый пароль должен отличаться от текущего")
-    }
+	// новый пароль не должен совпадать со старым
+	if oldPassword == newPassword {
+		return errors.New("новый пароль должен отличаться от текущего")
+	}
 
-    // 4. Проверяем длину нового пароля
-    if len(newPassword) < 6 {
-        return errors.New("новый пароль должен содержать минимум 6 символов")
-    }
+	// Проверяем длину нового пароля
+	if len(newPassword) < 6 {
+		return errors.New("новый пароль должен содержать минимум 6 символов")
+	}
 
-    // 5. Хешируем новый пароль
-    hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
-    if err != nil {
-        return err
-    }
+	// Хешируем новый пароль
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
 
-    // 6. Обновляем пароль
-    return s.userRepo.UpdatePassword(ctx, userID, string(hashedPassword))
+	// Обновляем пароль
+	return s.userRepo.UpdatePassword(ctx, userID, string(hashedPassword))
 }

@@ -2,8 +2,9 @@ package handlers
 
 import (
 	"log"
-	"moduleExample/web-service-gin/internal/services"
 	"net/http"
+
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/services"
 
 	"github.com/gin-gonic/gin"
 )
@@ -35,7 +36,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	// Генерируем токен для нового пользователя
-	token, _, err := h.authService.Login(req.Email, req.Password)
+	token, _, err := h.authService.Login(c.Request.Context(), req.Email, req.Password)
 	if err != nil {
 		c.AbortWithStatusJSON(500, gin.H{"error": "failed to generate token"})
 		return
@@ -58,7 +59,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	token, userID, err := h.authService.Login(req.Email, req.Password)
+	token, userID, err := h.authService.Login(c.Request.Context(), req.Email, req.Password)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return

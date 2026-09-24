@@ -3,15 +3,18 @@ package main
 import (
 	"context"
 	"log"
-	"moduleExample/web-service-gin/internal/handlers"
-	"moduleExample/web-service-gin/internal/middleware"
-	"moduleExample/web-service-gin/internal/mlclient"
-	"moduleExample/web-service-gin/internal/repositories"
-	"moduleExample/web-service-gin/internal/services"
-	"moduleExample/web-service-gin/internal/storage"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/auth"
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/handlers"
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/middleware"
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/mlclient"
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/repositories"
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/services"
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/storage"
+	"github.com/joho/godotenv"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -21,11 +24,19 @@ import (
 var db *pgxpool.Pool // Глобальная переменная для health-check'ов
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Println("no .env file found, using environment variables")
+	}
+
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
-		log.Fatal("❌ JWT_SECRET не загружен из .env!")
+		log.Fatal("JWT_SECRET is not set")
 	}
-	log.Printf("✅ JWT_SECRET загружен, длина: %d", len(secret))
+
+	tokenManager, err := auth.NewTokenManager(secret)
+	if err != nil{
+		log.Fatal("invalid JWT config: ", err)
+	}
 
 	// === 1. Подключение к базе данных ===
 	dbURL := os.Getenv("DATABASE_URL")
@@ -33,7 +44,6 @@ func main() {
 		log.Fatal("DATABASE_URL is not set")
 	}
 
-	var err error
 	db, err = pgxpool.New(context.Background(), dbURL)
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
@@ -79,7 +89,7 @@ func main() {
 
 	// === 3. Инициализация сервисов ===
 	mlClient := mlclient.NewClient()
-	authService := services.NewAuthService(userRepo)
+	authService := services.NewAuthService(userRepo, tokenManager)
 	imageService := services.NewImageService(imageRepo, fileStorage, mlClient)
 
 	// === 4. Инициализация хендлеров ===
@@ -90,7 +100,7 @@ func main() {
 	// === 5. Настройка Gin-роутера ===
 	router := gin.Default()
 
-	// ⚠️ CORS должен быть ОДИН раз и ПЕРВЫМ middleware
+	// CORS должен быть ОДИН раз и ПЕРВЫМ middleware
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -113,7 +123,7 @@ func main() {
 
 	// Защищённые роуты (с middleware)
 	protected := v1.Group("")
-	protected.Use(middleware.AuthMiddleware())
+	protected.Use(middleware.AuthMiddleware(tokenManager))
 	{
 		protected.POST("/change-password", authHandler.ChangePassword)
 

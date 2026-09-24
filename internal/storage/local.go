@@ -73,3 +73,4 @@ func (s *LocalStorage) SaveBytes(data []byte, originalFilename string) (string, 
 
 	return "uploads/" + filename, nil
 }
+

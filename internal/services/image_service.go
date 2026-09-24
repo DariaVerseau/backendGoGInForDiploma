@@ -7,14 +7,15 @@ import (
 	"io"
 	"log"
 	"mime/multipart"
-	"moduleExample/web-service-gin/internal/mlclient"
-	"moduleExample/web-service-gin/internal/models"
-	"moduleExample/web-service-gin/internal/repositories"
-	"moduleExample/web-service-gin/internal/storage"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/mlclient"
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/models"
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/repositories"
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/storage"
 
 	"github.com/google/uuid"
 )
