@@ -24,26 +24,18 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("Register validation error: %v", err)
-		c.AbortWithStatusJSON(400, gin.H{"error": "некорректные данные"})
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "некорректные данные"})
 		return
 	}
 
 	// Регистрируем пользователя и получаем его ID
-	userID, err := h.authService.Register(c.Request.Context(), req.Email, req.Password)
+	token, userID, err := h.authService.Register(c.Request.Context(), req.Email, req.Password)
 	if err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Генерируем токен для нового пользователя
-	token, _, err := h.authService.Login(c.Request.Context(), req.Email, req.Password)
-	if err != nil {
-		c.AbortWithStatusJSON(500, gin.H{"error": "failed to generate token"})
-		return
-	}
-
-	// Возвращаем и токен, и user_id
-	c.JSON(201, gin.H{
+	c.JSON(http.StatusCreated, gin.H{
 		"token":   token,
 		"user_id": userID,
 	})
@@ -65,7 +57,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// Возвращаем и токен, и user_id
 	c.JSON(http.StatusOK, gin.H{
 		"token":   token,
 		"user_id": userID,
@@ -78,7 +69,6 @@ type ChangePasswordRequest struct {
 }
 
 func (h *AuthHandler) ChangePassword(c *gin.Context) {
-	
 	userIDInterface, exists := c.Get("user_id")
 	if !exists {
 		c.AbortWithStatusJSON(401, gin.H{"error": "пользователь не авторизован"})

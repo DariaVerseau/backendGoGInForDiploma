@@ -24,29 +24,34 @@ func NewAuthService(userRepo *repositories.UserRepository, tokenManager *auth.To
 }
 
 // Register возвращает ID созданного пользователя
-func (s *AuthService) Register(ctx context.Context, email, password string) (int64, error) {
+func (s *AuthService) Register(ctx context.Context, email, password string) (string, int64, error) {
 	// Проверка, что email свободен
 	existing, err := s.userRepo.FindByEmail(ctx, email)
 	if err != nil && !errors.Is(err, repositories.ErrNotFound) {
-		return 0, err
+		return "", 0, err
 	}
 	if existing != nil {
-		return 0, errors.New("email уже зарегистрирован")
+		return "", 0, errors.New("email already regist")
 	}
 
 	// Хэшируем пароль
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return 0, err
+		return "", 0, err
 	}
 
 	// Сохраняем в БД и получаем ID
 	userID, err := s.userRepo.Create(ctx, email, string(hash))
 	if err != nil {
-		return 0, err
+		return "", 0, err
 	}
 
-	return userID, nil
+	token, err := s.tokenManager.GenerateToken(userID)
+	if err != nil{
+		return "", 0, err
+	}
+
+	return token, userID, nil
 }
 
 // Login возвращает токен и ID пользователя
