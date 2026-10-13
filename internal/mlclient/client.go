@@ -1,4 +1,4 @@
-// Package mlclient предоставляет HTTP-клиент для взаимодействия с ML-микросервисом.
+//  mlclient предоставляет http-клиент для взаимодействия с ml-микросервисом
 package mlclient
 
 import (
@@ -6,29 +6,55 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
 )
 
-const MLServiceURL = "http://ml-service:8000"
+const (
+	defaultBaseURL        = "http://ml-service:8000"
+	defaultRequestTimeout = 600 * time.Second
+	pingTimeout           = 3 * time.Second
+)
 
 type Client struct {
-	client            *http.Client
-	longTimeoutClient *http.Client
+	baseURL string
+	client  *http.Client
 }
 
 func NewClient() *Client {
+	baseURL := os.Getenv("ML_SERVICE_URL")
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
 	return &Client{
+		baseURL: baseURL,
 		client: &http.Client{
-			Timeout: 1000 * time.Second,
-		},
-		longTimeoutClient: &http.Client{
-			Timeout: 600 * time.Second,
+			Timeout: defaultRequestTimeout,
 		},
 	}
+}
+
+func (c *Client) Ping(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, pingTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/health", nil)
+	if err != nil {
+		return fmt.Errorf("build ping request: %w", err)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("ping ml-service: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("ml-service unhealthy: %s", resp.Status)
+	}
+	return nil
 }
 
 // doRequest выполняет HTTP-запрос и возвращает тело ответа или ошибку.
@@ -41,8 +67,8 @@ func (c *Client) doRequest(ctx context.Context, method, url string, body io.Read
 		req.Header.Set("Content-Type", contentType)
 	}
 
-	// НЕ передаём токен - ML сервис не требует авторизации
-	// ML работает во внутренней сети Docker
+	// НЕ передаём токен — ML сервис не требует авторизации.
+	// ML работает во внутренней сети Docker.
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -62,32 +88,24 @@ func (c *Client) doRequest(ctx context.Context, method, url string, body io.Read
 	return respBody, nil
 }
 
-// PostFileWithFields отправляет один файл и дополнительные поля формы (например, scale).
 func (c *Client) PostFileWithFields(
 	ctx context.Context,
 	endpoint, fileParamName, filename string,
 	fileData []byte,
 	fields map[string]string,
 ) ([]byte, error) {
-	log.Printf("PostFileWithFields: %s", endpoint)
-	log.Printf("URL: %s", MLServiceURL+endpoint)
-	log.Printf("filename: %s, data size: %d", filename, len(fileData))
-
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
 	part, err := writer.CreateFormFile(fileParamName, filepath.Base(filename))
 	if err != nil {
-		log.Printf("CreateFormFile error: %v", err)
 		return nil, fmt.Errorf("ошибка создания файла в форме: %w", err)
 	}
 	if _, err := part.Write(fileData); err != nil {
-		log.Printf("Write error: %v", err)
 		return nil, fmt.Errorf("ошибка записи данных файла: %w", err)
 	}
 
 	for key, value := range fields {
-		log.Printf("Adding field: %s=%s", key, value)
 		if err := writer.WriteField(key, value); err != nil {
 			return nil, fmt.Errorf("ошибка записи поля %s: %w", key, err)
 		}
@@ -97,47 +115,14 @@ func (c *Client) PostFileWithFields(
 		return nil, fmt.Errorf("ошибка закрытия формы: %w", err)
 	}
 
-	log.Printf("Sending request to %s", MLServiceURL+endpoint)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", MLServiceURL+endpoint, body)
-	if err != nil {
-		log.Printf("NewRequest error: %v", err)
-		return nil, err
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		log.Printf("Do request error: %v", err)
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	log.Printf("Response status: %d", resp.StatusCode)
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("ReadAll error: %v", err)
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		log.Printf("Non-OK status: %d, body: %s", resp.StatusCode, string(respBody))
-		return nil, fmt.Errorf("ML-сервис вернул статус %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	log.Printf("Response size: %d bytes", len(respBody))
-	return respBody, nil
+	return c.doRequest(ctx, http.MethodPost, c.baseURL+endpoint, body, writer.FormDataContentType())
 }
 
-// PostFile — отправка файла без дополнительных полей.
 func (c *Client) PostFile(ctx context.Context, endpoint, paramName, filename string, data []byte) ([]byte, error) {
 	return c.PostFileWithFields(ctx, endpoint, paramName, filename, data, nil)
 }
 
-// BasicStyleTransfer применяет базовый перенос стиля через эндпоинт /process.
-// Использует тот же формат запроса, что и StyleTransfer, но другой URL.
-func (c *Client) BasicStyleTransfer(
+/*func (c *Client) BasicStyleTransfer(
 	ctx context.Context,
 	contentData []byte,
 	contentName, styleName string,
@@ -162,10 +147,10 @@ func (c *Client) BasicStyleTransfer(
 	}
 
 	// Отправляем на /process, а не на /style_transfer_adain
-	return c.doRequest(ctx, "POST", MLServiceURL+"/process", body, writer.FormDataContentType())
+	return c.doRequest(ctx, http.MethodPost, c.baseURL+"/process", body, writer.FormDataContentType())
 }
+*/
 
-// StyleTransfer отправляет файл + параметры стиля.
 func (c *Client) StyleTransfer(
 	ctx context.Context,
 	contentData []byte,
@@ -176,7 +161,6 @@ func (c *Client) StyleTransfer(
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	// Content как файл
 	part, err := writer.CreateFormFile("image", filepath.Base(contentName))
 	if err != nil {
 		return nil, fmt.Errorf("ошибка создания content-формы: %w", err)
@@ -185,7 +169,6 @@ func (c *Client) StyleTransfer(
 		return nil, fmt.Errorf("ошибка записи content: %w", err)
 	}
 
-	// Все параметры стиля
 	if err := writer.WriteField("style", styleName); err != nil {
 		return nil, fmt.Errorf("ошибка записи поля style: %w", err)
 	}
@@ -202,5 +185,5 @@ func (c *Client) StyleTransfer(
 		return nil, fmt.Errorf("ошибка закрытия формы style_transfer: %w", err)
 	}
 
-	return c.doRequest(ctx, "POST", MLServiceURL+"/style_transfer_adain", body, writer.FormDataContentType())
+	return c.doRequest(ctx, http.MethodPost, c.baseURL+"/style_transfer_adain", body, writer.FormDataContentType())
 }

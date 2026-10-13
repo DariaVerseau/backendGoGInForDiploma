@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/DariaVerseau/backendGoGInForDiploma/internal/auth"
 	"github.com/DariaVerseau/backendGoGInForDiploma/internal/handlers"
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/health"
 	"github.com/DariaVerseau/backendGoGInForDiploma/internal/middleware"
 	"github.com/DariaVerseau/backendGoGInForDiploma/internal/mlclient"
 	"github.com/DariaVerseau/backendGoGInForDiploma/internal/repositories"
@@ -21,86 +25,70 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var db *pgxpool.Pool // Глобальная переменная для health-check'ов
-
 func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("no .env file found, using environment variables")
 	}
 
+	// === 1. Конфигурация ===
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
 		log.Fatal("JWT_SECRET is not set")
 	}
-
 	tokenManager, err := auth.NewTokenManager(secret)
-	if err != nil{
+	if err != nil {
 		log.Fatal("invalid JWT config: ", err)
 	}
 
-	// === 1. Подключение к базе данных ===
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL is not set")
 	}
 
-	db, err = pgxpool.New(context.Background(), dbURL)
+	// === 2. Подключение к БД (локальная переменная, не глобальная) ===
+	pool, err := pgxpool.New(context.Background(), dbURL)
 	if err != nil {
-		log.Fatal("Failed to connect to database:", err)
+		log.Fatal("Failed to connect to database: ", err)
 	}
-	defer db.Close()
+	defer pool.Close()
 
-	// Простая проверка подключения
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := db.Ping(ctx); err != nil {
-		log.Fatal("Database ping failed:", err)
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer pingCancel()
+	if err := pool.Ping(pingCtx); err != nil {
+		log.Fatal("Database ping failed: ", err)
 	}
 	log.Println("Connected to PostgreSQL")
 
-	uploadDir := "./uploads"
+	// === 3. Инициализация зависимостей ===
+	uploadDir := os.Getenv("UPLOAD_DIR")
+	if uploadDir == "" {
+		uploadDir = "./uploads"
+	}
 	fileStorage := storage.NewLocalStorage(uploadDir)
 
-	// Создаём таблицы, если не существуют
-	_, err = db.Exec(ctx, `
-	CREATE TABLE IF NOT EXISTS users (
-		id SERIAL PRIMARY KEY,
-		email TEXT UNIQUE NOT NULL,
-		password TEXT NOT NULL,
-		created_at TIMESTAMP DEFAULT NOW()
-	);
-
-	CREATE TABLE IF NOT EXISTS images (
-		id TEXT PRIMARY KEY,
-		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		title TEXT NOT NULL,
-		url TEXT NOT NULL,
-		style TEXT NOT NULL,
-		created_at TIMESTAMP DEFAULT NOW()
-	);
-	`)
-	if err != nil {
-		log.Fatal("Не удалось создать таблицы:", err)
-	}
-
-	// === 2. Инициализация репозиториев ===
-	userRepo := repositories.NewUserRepository(db)
-	imageRepo := repositories.NewImageRepository(db)
-
-	// === 3. Инициализация сервисов ===
 	mlClient := mlclient.NewClient()
+
+	userRepo := repositories.NewUserRepository(pool)
+	imageRepo := repositories.NewImageRepository(pool)
+
 	authService := services.NewAuthService(userRepo, tokenManager)
 	imageService := services.NewImageService(imageRepo, fileStorage, mlClient)
 
-	// === 4. Инициализация хендлеров ===
 	authHandler := handlers.NewAuthHandler(authService)
 	imageHandler := handlers.NewImageHandler(imageService)
 	mlHandler := handlers.NewMLHandler(imageService)
 
-	// === 5. Настройка Gin-роутера ===
+	// === 4. Gin-роутер ===
 	router := gin.Default()
 
-	// CORS должен быть ОДИН раз и ПЕРВЫМ middleware
+	if err := router.SetTrustedProxies([]string{
+		"127.0.0.1",
+		"::1",
+		"172.16.0.0/12",
+	}); err != nil {
+		log.Fatal("failed to set trusted proxies: ", err)
+	}
+
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -110,61 +98,70 @@ func main() {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// Обслуживаем статические файлы
-	router.Static("/uploads", "./uploads")
-	router.Static("/style", "./style")
+	router.Static("/uploads", uploadDir)
 
-	// Единая API-группа с версией
+	// === 5. Health-checks ===
+	healthHandler := health.NewHandler(map[string]health.Pinger{
+		"database":   pool,
+		"ml_service": mlClient,
+	})
+	router.GET("/health", healthHandler.Live)
+	router.GET("/ready", healthHandler.Ready)
+
+	// === 6. API роуты ===
 	v1 := router.Group("/api/v1")
-
-	// Публичные роуты (без middleware)
 	v1.POST("/register", authHandler.Register)
 	v1.POST("/login", authHandler.Login)
 
-	// Защищённые роуты (с middleware)
 	protected := v1.Group("")
 	protected.Use(middleware.AuthMiddleware(tokenManager))
 	{
 		protected.POST("/change-password", authHandler.ChangePassword)
-
 		protected.GET("/images/:id", imageHandler.GetImage)
 		protected.GET("/images", imageHandler.GetImages)
 		protected.POST("/images", imageHandler.UploadImage)
 
-		// ML эндпоинты
 		protected.POST("/ml/upscale", mlHandler.Upscale)
-		protected.POST("/ml/process", mlHandler.Process)
+		//protected.POST("/ml/process", mlHandler.Process)
 		protected.POST("/ml/enhance", mlHandler.Enhance)
 		protected.POST("/ml/postprocess", mlHandler.PostProcess)
 		protected.POST("/ml/style_transfer", mlHandler.StyleTransfer)
 	}
 
-	// Публичные health-checks (без версии!)
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "go-api"})
-	})
-	router.GET("/ready", func(c *gin.Context) {
-		if err := checkDBConnection(); err != nil {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "db not ready"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"status": "ready", "database": "connected"})
-	})
-
-	// === 6. Запуск сервера ===
+	// === 7. HTTP-сервер с таймаутами ===
 	port := os.Getenv("SERVER_PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	log.Printf("Server starting on port %s\n", port)
-	if err := router.Run(":" + port); err != nil {
-		log.Fatal("Server failed to start:", err)
+	srv := &http.Server{
+		Addr:              ":" + port,
+		Handler:           router,
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      120 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
-}
 
-func checkDBConnection() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	return db.Ping(ctx)
+	go func() {
+		log.Printf("Server starting on port %s", port)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	// === 8. Graceful shutdown ===
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutting down server...")
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Server forced to shutdown: %v", err)
+	}
+
+	log.Println("Server stopped")
 }

@@ -235,7 +235,7 @@ func (h *MLHandler) StyleTransfer(c *gin.Context) {
 	c.JSON(http.StatusOK, img)
 }
 
-func (h *MLHandler) Process(c *gin.Context) {
+/*func (h *MLHandler) Process(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 	if userID == 0 {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
@@ -256,5 +256,5 @@ func (h *MLHandler) Process(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, img)
-}
+}*/
 

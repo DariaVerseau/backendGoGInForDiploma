@@ -282,7 +282,7 @@ func (s *ImageService) StyleTransfer(
 	return s.SaveMLResult(ctx, userID, resultData, contentFile.Filename, "Styled Image", "style_transfer")
 }
 
-func (s *ImageService) BasicStyleTransfer(
+/*func (s *ImageService) BasicStyleTransfer(
 	ctx context.Context,
 	userID int,
 	contentFile *multipart.FileHeader,
@@ -311,7 +311,7 @@ func (s *ImageService) BasicStyleTransfer(
 	}
 
 	return s.SaveMLResult(ctx, userID, resultData, contentFile.Filename, "Basic Styled Image", "basic_nst")
-}
+}*/
 
 func (s *ImageService) PostProcessWithParams(ctx context.Context, userID int, file *multipart.FileHeader, params map[string]string) (*models.Image, error) {
 	return s.processML(ctx, userID, file, mlOperation{
@@ -322,14 +322,14 @@ func (s *ImageService) PostProcessWithParams(ctx context.Context, userID int, fi
 	})
 }
 
-func (s *ImageService) Process(
+/*func (s *ImageService) Process(
 	ctx context.Context,
 	userID int,
 	contentFile *multipart.FileHeader,
 	styleName string,
 ) (*models.Image, error) {
 	return s.BasicStyleTransfer(ctx, userID, contentFile, styleName)
-}
+}*/
 
 // EnhanceByIDWithOptions - улучшение изображения по ID с расширенными параметрами
 func (s *ImageService) EnhanceByIDWithOptions(
