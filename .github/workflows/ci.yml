@@ -15,7 +15,8 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25.10"
+          go-version-file: "go.mod"
+          cache: true
 
       - name: Download deps
         run: go mod download
