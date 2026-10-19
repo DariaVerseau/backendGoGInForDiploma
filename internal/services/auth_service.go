@@ -5,49 +5,53 @@ import (
 	"errors"
 	"log"
 
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/apperrors"
 	"github.com/DariaVerseau/backendGoGInForDiploma/internal/auth"
-	"github.com/DariaVerseau/backendGoGInForDiploma/internal/repositories"
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/models"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
+type UserRepository interface {
+	FindByEmail(ctx context.Context, email string) (*models.User, error)
+	Create(ctx context.Context, email, passwordHash string) (int64, error)
+	GetUserByID(ctx context.Context, id int64) (*models.User, error)
+	UpdatePassword(ctx context.Context, userID int64, passwordHash string) error
+}
+
 type AuthService struct {
-	userRepo     *repositories.UserRepository
+	userRepo     UserRepository
 	tokenManager *auth.TokenManager
 }
 
-func NewAuthService(userRepo *repositories.UserRepository, tokenManager *auth.TokenManager) *AuthService {
+func NewAuthService(userRepo UserRepository, tokenManager *auth.TokenManager) *AuthService {
 	return &AuthService{
 		userRepo:     userRepo,
 		tokenManager: tokenManager,
 	}
 }
 
-// Register возвращает ID созданного пользователя
 func (s *AuthService) Register(ctx context.Context, email, password string) (string, int64, error) {
-	// Проверка, что email свободен
 	existing, err := s.userRepo.FindByEmail(ctx, email)
-	if err != nil && !errors.Is(err, repositories.ErrNotFound) {
+	if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		return "", 0, err
 	}
 	if existing != nil {
 		return "", 0, errors.New("email already regist")
 	}
 
-	// Хэшируем пароль
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return "", 0, err
 	}
 
-	// Сохраняем в БД и получаем ID
 	userID, err := s.userRepo.Create(ctx, email, string(hash))
 	if err != nil {
 		return "", 0, err
 	}
 
 	token, err := s.tokenManager.GenerateToken(userID)
-	if err != nil{
+	if err != nil {
 		return "", 0, err
 	}
 

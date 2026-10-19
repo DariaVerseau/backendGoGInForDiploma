@@ -5,13 +5,14 @@ import (
 	"errors"
 	"log"
 
+	"github.com/DariaVerseau/backendGoGInForDiploma/internal/apperrors"
 	"github.com/DariaVerseau/backendGoGInForDiploma/internal/models"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var ErrNotFound = errors.New("user not found")
+var ErrNotFound = apperrors.ErrNotFound
 
 type UserRepository struct {
 	db *pgxpool.Pool
