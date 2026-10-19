@@ -7,6 +7,7 @@ import (
 
 	"github.com/DariaVerseau/backendGoGInForDiploma/internal/models"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -25,7 +26,7 @@ func scanImage(row pgx.Rows) (*models.Image, error) {
 	var createdAt pgtype.Timestamptz
 	var style pgtype.Text // ← используем pgtype.Text для поддержки NULL
 
-	err := row.Scan(&img.ID, &img.UserID, &img.Title, &img.URL, &style, &createdAt)
+	err := row.Scan(&img.ID, &img.UserID, &img.Title, &img.StorageKey, &style, &createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +45,7 @@ func scanImage(row pgx.Rows) (*models.Image, error) {
 }
 
 func (r *ImageRepository) GetAll(ctx context.Context) ([]models.Image, error) {
-	rows, err := r.db.Query(ctx, "SELECT id, user_id, title, url, style, created_at FROM images ORDER BY created_at DESC")
+	rows, err := r.db.Query(ctx, "SELECT id, user_id, title, storage_key, style, created_at FROM images ORDER BY created_at DESC")
 	if err != nil {
 		return nil, fmt.Errorf("failed to query images: %w", err)
 	}
@@ -62,9 +63,9 @@ func (r *ImageRepository) GetAll(ctx context.Context) ([]models.Image, error) {
 }
 
 // GetByUserIDWithPagination - получение изображений пользователя с пагинацией
-func (r *ImageRepository) GetByUserIDWithPagination(ctx context.Context, userID int, limit, offset int) ([]models.Image, error) {
+func (r *ImageRepository) GetByUserIDWithPagination(ctx context.Context, userID int64, limit, offset int) ([]models.Image, error) {
 	query := `
-        SELECT id, user_id, title, url, style, created_at 
+        SELECT id, user_id, title, storage_key, style, created_at 
         FROM images 
         WHERE user_id = $1 
         ORDER BY created_at DESC 
@@ -88,20 +89,20 @@ func (r *ImageRepository) GetByUserIDWithPagination(ctx context.Context, userID 
 }
 
 // CountByUserID - подсчёт количества изображений пользователя
-func (r *ImageRepository) CountByUserID(ctx context.Context, userID int) (int, error) {
+func (r *ImageRepository) CountByUserID(ctx context.Context, userID int64) (int, error) {
 	var count int
 	err := r.db.QueryRow(ctx, "SELECT COUNT(*) FROM images WHERE user_id = $1", userID).Scan(&count)
 	return count, err
 }
 
-func (r *ImageRepository) GetByIDAndUser(ctx context.Context, imageID string, userID int) (*models.Image, error) {
+func (r *ImageRepository) GetByIDAndUser(ctx context.Context, imageID uuid.UUID, userID int64) (*models.Image, error) {
 	var img models.Image
 	var createdAt pgtype.Timestamptz
 	var style pgtype.Text
 
-	query := `SELECT id, user_id, title, url, style, created_at FROM images WHERE id = $1 AND user_id = $2`
+	query := `SELECT id, user_id, title, storage_key, style, created_at FROM images WHERE id = $1 AND user_id = $2`
 	err := r.db.QueryRow(ctx, query, imageID, userID).Scan(
-		&img.ID, &img.UserID, &img.Title, &img.URL, &style, &createdAt,
+		&img.ID, &img.UserID, &img.Title, &img.StorageKey, &style, &createdAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -120,8 +121,9 @@ func (r *ImageRepository) GetByIDAndUser(ctx context.Context, imageID string, us
 }
 
 func (r *ImageRepository) Create(ctx context.Context, img *models.Image) error {
-	query := `INSERT INTO images (id, user_id, title, url, style, created_at) 
-	          VALUES ($1, $2, $3, $4, $5, NOW())`
+	query := `INSERT INTO images (id, user_id, title, storage_key, style) 
+	          VALUES ($1, $2, $3, $4, $5)
+	          RETURNING created_at`
 
 	var style interface{}
 	if img.Style == "" {
@@ -130,7 +132,8 @@ func (r *ImageRepository) Create(ctx context.Context, img *models.Image) error {
 		style = img.Style
 	}
 
-	_, err := r.db.Exec(ctx, query, img.ID, img.UserID, img.Title, img.URL, style)
+	err := r.db.QueryRow(ctx, query, img.ID, img.UserID, img.Title, img.StorageKey, style).
+		Scan(&img.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to create image: %w", err)
 	}

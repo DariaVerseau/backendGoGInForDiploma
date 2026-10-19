@@ -41,20 +41,20 @@ func NewImageService(
 // === ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ===
 
 // GetImagesByUser - получение изображений пользователя с пагинацией
-func (s *ImageService) GetImagesByUserPaginated(ctx context.Context, userID int, limit, offset int) ([]models.Image, error) {
-    images, err := s.imageRepo.GetByUserIDWithPagination(ctx, userID, limit, offset)
-    if err != nil {
-        return nil, fmt.Errorf("не удалось получить изображения: %w", err)
-    }
-    return images, nil
+func (s *ImageService) GetImagesByUserPaginated(ctx context.Context, userID int64, limit, offset int) ([]models.Image, error) {
+	images, err := s.imageRepo.GetByUserIDWithPagination(ctx, userID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("не удалось получить изображения: %w", err)
+	}
+	return images, nil
 }
 
 // GetImagesCount - получение количества изображений пользователя
-func (s *ImageService) GetImagesCount(ctx context.Context, userID int) (int, error) {
-    return s.imageRepo.CountByUserID(ctx, userID)
+func (s *ImageService) GetImagesCount(ctx context.Context, userID int64) (int, error) {
+	return s.imageRepo.CountByUserID(ctx, userID)
 }
 
-func (s *ImageService) GetImageByID(ctx context.Context, imageID string, userID int) (*models.Image, error) {
+func (s *ImageService) GetImageByID(ctx context.Context, imageID uuid.UUID, userID int64) (*models.Image, error) {
 	img, err := s.imageRepo.GetByIDAndUser(ctx, imageID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка получения изображения: %w", err)
@@ -65,7 +65,7 @@ func (s *ImageService) GetImageByID(ctx context.Context, imageID string, userID 
 	return img, nil
 }
 
-func (s *ImageService) UploadImage(ctx context.Context, userID int, file *multipart.FileHeader, title, style string) (*models.Image, error) {
+func (s *ImageService) UploadImage(ctx context.Context, userID int64, file *multipart.FileHeader, title, style string) (*models.Image, error) {
 	if file == nil || file.Size == 0 {
 		return nil, errors.New("файл не предоставлен")
 	}
@@ -98,11 +98,11 @@ func (s *ImageService) UploadImage(ctx context.Context, userID int, file *multip
 	}
 
 	img := &models.Image{
-		ID:     newID.String(),
-		UserID: userID,
-		Title:  title,
-		URL:    url,
-		Style:  style,
+		ID:         newID,
+		UserID:     userID,
+		Title:      title,
+		StorageKey: url,
+		Style:      style,
 	}
 
 	if err := s.imageRepo.Create(ctx, img); err != nil {
@@ -112,7 +112,7 @@ func (s *ImageService) UploadImage(ctx context.Context, userID int, file *multip
 }
 
 // SaveMLResult - сохранение результата ML-обработки
-func (s *ImageService) SaveMLResult(ctx context.Context, userID int, imageData []byte, originalFilename, title, style string) (*models.Image, error) {
+func (s *ImageService) SaveMLResult(ctx context.Context, userID int64, imageData []byte, originalFilename, title, style string) (*models.Image, error) {
 	log.Printf("📝 SaveMLResult: userID=%d, title=%s, style=%s, dataSize=%d", userID, title, style, len(imageData))
 
 	if len(imageData) == 0 {
@@ -145,13 +145,13 @@ func (s *ImageService) SaveMLResult(ctx context.Context, userID int, imageData [
 	}
 
 	img := &models.Image{
-		ID:     newID.String(),
-		UserID: userID,
-		Title:  title,
-		URL:    url,
-		Style:  style,
+		ID:         newID,
+		UserID:     userID,
+		Title:      title,
+		StorageKey: url,
+		Style:      style,
 	}
-	log.Printf("Creating DB record: ID=%s, URL=%s", img.ID, img.URL)
+	log.Printf("Creating DB record: ID=%s, URL=%s", img.ID, img.StorageKey)
 
 	if err := s.imageRepo.Create(ctx, img); err != nil {
 		log.Printf("DB create failed: %v", err)
@@ -174,7 +174,7 @@ type mlOperation struct {
 // Универсальная функция без alpha/preserveColor
 func (s *ImageService) processML(
 	ctx context.Context,
-	userID int,
+	userID int64,
 	contentFile *multipart.FileHeader,
 	op mlOperation,
 ) (*models.Image, error) {
@@ -234,7 +234,7 @@ func readFile(file *multipart.FileHeader) ([]byte, error) {
 
 // === ПУБЛИЧНЫЕ МЕТОДЫ ===
 
-func (s *ImageService) Upscale(ctx context.Context, userID int, file *multipart.FileHeader, scale int) (*models.Image, error) {
+func (s *ImageService) Upscale(ctx context.Context, userID int64, file *multipart.FileHeader, scale int) (*models.Image, error) {
 	if scale != 2 && scale != 4 {
 		return nil, errors.New("scale must be 2 or 4")
 	}
@@ -246,7 +246,7 @@ func (s *ImageService) Upscale(ctx context.Context, userID int, file *multipart.
 	})
 }
 
-func (s *ImageService) PostProcess(ctx context.Context, userID int, file *multipart.FileHeader) (*models.Image, error) {
+func (s *ImageService) PostProcess(ctx context.Context, userID int64, file *multipart.FileHeader) (*models.Image, error) {
 	return s.processML(ctx, userID, file, mlOperation{
 		endpoint: "/postprocess",
 		title:    "Postprocessed Image",
@@ -256,7 +256,7 @@ func (s *ImageService) PostProcess(ctx context.Context, userID int, file *multip
 
 func (s *ImageService) StyleTransfer(
 	ctx context.Context,
-	userID int,
+	userID int64,
 	contentFile *multipart.FileHeader,
 	styleName string,
 	alpha float32,
@@ -284,7 +284,7 @@ func (s *ImageService) StyleTransfer(
 
 /*func (s *ImageService) BasicStyleTransfer(
 	ctx context.Context,
-	userID int,
+	userID int64,
 	contentFile *multipart.FileHeader,
 	styleName string,
 ) (*models.Image, error) {
@@ -313,7 +313,7 @@ func (s *ImageService) StyleTransfer(
 	return s.SaveMLResult(ctx, userID, resultData, contentFile.Filename, "Basic Styled Image", "basic_nst")
 }*/
 
-func (s *ImageService) PostProcessWithParams(ctx context.Context, userID int, file *multipart.FileHeader, params map[string]string) (*models.Image, error) {
+func (s *ImageService) PostProcessWithParams(ctx context.Context, userID int64, file *multipart.FileHeader, params map[string]string) (*models.Image, error) {
 	return s.processML(ctx, userID, file, mlOperation{
 		endpoint: "/postprocess",
 		title:    "Postprocessed Image",
@@ -324,7 +324,7 @@ func (s *ImageService) PostProcessWithParams(ctx context.Context, userID int, fi
 
 /*func (s *ImageService) Process(
 	ctx context.Context,
-	userID int,
+	userID int64,
 	contentFile *multipart.FileHeader,
 	styleName string,
 ) (*models.Image, error) {
@@ -334,8 +334,8 @@ func (s *ImageService) PostProcessWithParams(ctx context.Context, userID int, fi
 // EnhanceByIDWithOptions - улучшение изображения по ID с расширенными параметрами
 func (s *ImageService) EnhanceByIDWithOptions(
 	ctx context.Context,
-	userID int,
-	imageID string,
+	userID int64,
+	imageID uuid.UUID,
 	fidelityWeight float64,
 	postprocess bool,
 	colorize bool,
@@ -379,12 +379,12 @@ func (s *ImageService) EnhanceByIDWithOptions(
 		log.Printf("❌ SaveMLResult failed: %v", err)
 		return nil, err
 	}
-	log.Printf("✅ EnhanceByIDWithOptions SUCCESS: imageID=%s, url=%s", img.ID, img.URL)
+	log.Printf("✅ EnhanceByIDWithOptions SUCCESS: imageID=%s, url=%s", img.ID, img.StorageKey)
 	return img, nil
 }
 
 // EnhanceByID - улучшение изображения по ID (сохраняем для обратной совместимости)
-func (s *ImageService) EnhanceByID(ctx context.Context, userID int, imageID string, fidelityWeight float64, postprocess bool) (*models.Image, error) {
+func (s *ImageService) EnhanceByID(ctx context.Context, userID int64, imageID uuid.UUID, fidelityWeight float64, postprocess bool) (*models.Image, error) {
 	// Вызываем новый метод со значениями по умолчанию
 	return s.EnhanceByIDWithOptions(ctx, userID, imageID, fidelityWeight, postprocess, false)
 }
@@ -392,13 +392,13 @@ func (s *ImageService) EnhanceByID(ctx context.Context, userID int, imageID stri
 // EnhanceWithOptions - улучшение изображения с расширенными параметрами (прямая загрузка файла)
 func (s *ImageService) EnhanceWithOptions(
 	ctx context.Context,
-	userID int,
+	userID int64,
 	file *multipart.FileHeader,
 	fidelityWeight float64,
 	postprocess bool,
 	colorize bool,
 ) (*models.Image, error) {
-	log.Printf("🔵 EnhanceWithOptions START: userID=%d, fidelity=%.2f, postprocess=%v, colorize=%v," ,
+	log.Printf("🔵 EnhanceWithOptions START: userID=%d, fidelity=%.2f, postprocess=%v, colorize=%v,",
 		userID, fidelityWeight, postprocess, colorize)
 
 	fileData, err := readFile(file)
@@ -435,12 +435,12 @@ func (s *ImageService) EnhanceWithOptions(
 		log.Printf("❌ SaveMLResult failed: %v", err)
 		return nil, err
 	}
-	log.Printf("✅ EnhanceWithOptions SUCCESS: imageID=%s, url=%s", img.ID, img.URL)
+	log.Printf("✅ EnhanceWithOptions SUCCESS: imageID=%s, url=%s", img.ID, img.StorageKey)
 	return img, nil
 }
 
 // Enhance - улучшение изображения (сохраняем для обратной совместимости)
-func (s *ImageService) Enhance(ctx context.Context, userID int, file *multipart.FileHeader, fidelityWeight float64, postprocess bool) (*models.Image, error) {
+func (s *ImageService) Enhance(ctx context.Context, userID int64, file *multipart.FileHeader, fidelityWeight float64, postprocess bool) (*models.Image, error) {
 	// Вызываем новый метод со значениями по умолчанию
 	return s.EnhanceWithOptions(ctx, userID, file, fidelityWeight, postprocess, false)
 }
@@ -448,7 +448,7 @@ func (s *ImageService) Enhance(ctx context.Context, userID int, file *multipart.
 // ========== НОВЫЕ МЕТОДЫ ДЛЯ ОБРАБОТКИ ПО ID ==========
 
 // getFileDataByImageID получает данные файла по ID изображения
-func (s *ImageService) getFileDataByImageID(ctx context.Context, imageID string, userID int) ([]byte, string, error) {
+func (s *ImageService) getFileDataByImageID(ctx context.Context, imageID uuid.UUID, userID int64) ([]byte, string, error) {
 	// Получаем метаданные из БД
 	img, err := s.GetImageByID(ctx, imageID, userID)
 	if err != nil {
@@ -457,7 +457,7 @@ func (s *ImageService) getFileDataByImageID(ctx context.Context, imageID string,
 
 	// Формируем правильный путь к файлу
 	// Путь в БД: "uploads/filename.jpg"
-	filePath := img.URL
+	filePath := img.StorageKey
 
 	// Проверяем несколько вариантов путей
 	pathsToTry := []string{
@@ -484,7 +484,7 @@ func (s *ImageService) getFileDataByImageID(ctx context.Context, imageID string,
 }
 
 // UpscaleByID - увеличение изображения по ID
-func (s *ImageService) UpscaleByID(ctx context.Context, userID int, imageID string, scale int) (*models.Image, error) {
+func (s *ImageService) UpscaleByID(ctx context.Context, userID int64, imageID uuid.UUID, scale int) (*models.Image, error) {
 	if scale != 2 && scale != 4 {
 		return nil, errors.New("scale must be 2 or 4")
 	}
@@ -510,7 +510,7 @@ func (s *ImageService) UpscaleByID(ctx context.Context, userID int, imageID stri
 }
 
 // PostProcessByID - постобработка изображения по ID
-func (s *ImageService) PostProcessByID(ctx context.Context, userID int, imageID string, params map[string]string) (*models.Image, error) {
+func (s *ImageService) PostProcessByID(ctx context.Context, userID int64, imageID uuid.UUID, params map[string]string) (*models.Image, error) {
 	// Получаем данные файла
 	fileData, filename, err := s.getFileDataByImageID(ctx, imageID, userID)
 	if err != nil {
@@ -534,7 +534,7 @@ func (s *ImageService) PostProcessByID(ctx context.Context, userID int, imageID 
 }
 
 // StyleTransferByID - перенос стиля по ID
-func (s *ImageService) StyleTransferByID(ctx context.Context, userID int, imageID string, styleName string, alpha float32, preserveColor bool) (*models.Image, error) {
+func (s *ImageService) StyleTransferByID(ctx context.Context, userID int64, imageID uuid.UUID, styleName string, alpha float32, preserveColor bool) (*models.Image, error) {
 	// Получаем данные файла
 	fileData, filename, err := s.getFileDataByImageID(ctx, imageID, userID)
 	if err != nil {
@@ -552,7 +552,7 @@ func (s *ImageService) StyleTransferByID(ctx context.Context, userID int, imageI
 }
 
 // GetImageFileData возвращает данные файла изображения по ID
-func (s *ImageService) GetImageFileData(ctx context.Context, imageID string, userID int) ([]byte, string, error) {
+func (s *ImageService) GetImageFileData(ctx context.Context, imageID uuid.UUID, userID int64) ([]byte, string, error) {
 	img, err := s.GetImageByID(ctx, imageID, userID)
 	if err != nil {
 		return nil, "", err
@@ -560,10 +560,10 @@ func (s *ImageService) GetImageFileData(ctx context.Context, imageID string, use
 
 	// Пробуем разные пути
 	pathsToTry := []string{
-		"./" + img.URL,
-		"/app/" + img.URL,
-		img.URL,
-		filepath.Join(s.storage.GetBasePath(), filepath.Base(img.URL)),
+		"./" + img.StorageKey,
+		"/app/" + img.StorageKey,
+		img.StorageKey,
+		filepath.Join(s.storage.GetBasePath(), filepath.Base(img.StorageKey)),
 	}
 
 	for _, path := range pathsToTry {
@@ -573,5 +573,5 @@ func (s *ImageService) GetImageFileData(ctx context.Context, imageID string, use
 		}
 	}
 
-	return nil, "", fmt.Errorf("file not found: %s", img.URL)
+	return nil, "", fmt.Errorf("file not found: %s", img.StorageKey)
 }

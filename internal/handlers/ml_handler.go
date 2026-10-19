@@ -7,9 +7,23 @@ import (
 
 	"github.com/DariaVerseau/backendGoGInForDiploma/internal/models"
 	"github.com/DariaVerseau/backendGoGInForDiploma/internal/services"
+	"github.com/google/uuid"
 
 	"github.com/gin-gonic/gin"
 )
+
+func parseImageIDFromForm(c *gin.Context) (uuid.UUID, bool) {
+	idStr := c.PostForm("image_id")
+	if idStr == "" {
+		return uuid.Nil, true // пустой image_id — это ок, будет fallback на файл
+	}
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid image_id"})
+		return uuid.Nil, false
+	}
+	return id, true
+}
 
 type MLHandler struct {
 	imageService *services.ImageService
@@ -19,16 +33,16 @@ func NewMLHandler(imageService *services.ImageService) *MLHandler {
 	return &MLHandler{imageService: imageService}
 }
 
-func getUserIDFromContext(c *gin.Context) int {
+func getUserIDFromContext(c *gin.Context) int64 {
 	userID, exists := c.Get("user_id")
 	if !exists {
 		return 0
 	}
 	switch v := userID.(type) {
-	case int:
-		return v
 	case int64:
-		return int(v)
+		return v
+	case int:
+		return int64(v)
 	default:
 		return 0
 	}
@@ -48,9 +62,12 @@ func (h *MLHandler) Upscale(c *gin.Context) {
 		return
 	}
 
-	imageID := c.PostForm("image_id")
+	imageID, ok := parseImageIDFromForm(c)
+	if !ok {
+		return
+	}
 
-	if imageID != "" {
+	if imageID != uuid.Nil {
 		log.Printf("Upscale by ID: %s, scale: %d", imageID, scale)
 		result, err := h.imageService.UpscaleByID(c.Request.Context(), userID, imageID, scale)
 		if err != nil {
@@ -96,9 +113,12 @@ func (h *MLHandler) Enhance(c *gin.Context) {
 	log.Printf("Enhance params: fidelity=%.2f, postprocess=%v, colorize=%v,",
 		fidelityWeight, postprocess, colorize)
 
-	imageID := c.PostForm("image_id")
+	imageID, ok := parseImageIDFromForm(c)
+	if !ok {
+		return
+	}
 
-	if imageID != "" {
+	if imageID != uuid.Nil {
 		log.Printf("Enhance by ID: %s", imageID)
 		result, err := h.imageService.EnhanceByIDWithOptions(
 			c.Request.Context(),
@@ -159,9 +179,12 @@ func (h *MLHandler) PostProcess(c *gin.Context) {
 		params["denoise"] = denoise
 	}
 
-	imageID := c.PostForm("image_id")
+	imageID, ok := parseImageIDFromForm(c)
+	if !ok {
+		return
+	}
 
-	if imageID != "" {
+	if imageID != uuid.Nil {
 		log.Printf("PostProcess by ID: %s", imageID)
 		result, err := h.imageService.PostProcessByID(c.Request.Context(), userID, imageID, params)
 		if err != nil {
@@ -208,9 +231,12 @@ func (h *MLHandler) StyleTransfer(c *gin.Context) {
 	}
 	preserveColor := preserveColorStr == "true"
 
-	imageID := c.PostForm("image_id")
+	imageID, ok := parseImageIDFromForm(c)
+	if !ok {
+		return
+	}
 
-	if imageID != "" {
+	if imageID != uuid.Nil {
 		log.Printf("StyleTransfer by ID: %s, style: %s", imageID, styleName)
 		result, err := h.imageService.StyleTransferByID(c.Request.Context(), userID, imageID, styleName, float32(alpha), preserveColor)
 		if err != nil {
@@ -257,4 +283,3 @@ func (h *MLHandler) StyleTransfer(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, img)
 }*/
-

@@ -24,7 +24,7 @@ func NewUserRepository(db *pgxpool.Pool) *UserRepository {
 func (r *UserRepository) Create(ctx context.Context, email, passwordHash string) (int64, error) {
 	var id int64
 	err := r.db.QueryRow(ctx,
-		"INSERT INTO users (email, password) VALUES ($1, $2) RETURNING id",
+		"INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id",
 		email, passwordHash).Scan(&id)
 	if err != nil {
 		log.Printf(" Ошибка создания пользователя: %v", err)
@@ -39,8 +39,8 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*models
 
 	var user models.User
 	err := r.db.QueryRow(ctx,
-		"SELECT id, email, password FROM users WHERE email = $1",
-		email).Scan(&user.ID, &user.Email, &user.Password)
+		"SELECT id, email, password_hash FROM users WHERE email = $1",
+		email).Scan(&user.ID, &user.Email, &user.PasswordHash)
 	if err != nil {
 		log.Printf(" Ошибка поиска: %v", err)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -56,8 +56,8 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*models
 func (r *UserRepository) FindByID(ctx context.Context, id int64) (*models.User, error) {
 	var user models.User
 	err := r.db.QueryRow(ctx,
-		"SELECT id, email, password FROM users WHERE id = $1",
-		id).Scan(&user.ID, &user.Email, &user.Password)
+		"SELECT id, email, password_hash FROM users WHERE id = $1",
+		id).Scan(&user.ID, &user.Email, &user.PasswordHash)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -68,7 +68,7 @@ func (r *UserRepository) FindByID(ctx context.Context, id int64) (*models.User, 
 }
 
 func (r *UserRepository) UpdatePassword(ctx context.Context, userID int64, newPasswordHash string) error {
-	query := `UPDATE users SET password = $1 WHERE id = $2`
+	query := `UPDATE users SET password_hash = $1 WHERE id = $2`
 	_, err := r.db.Exec(ctx, query, newPasswordHash, userID)
 	return err
 }
@@ -76,8 +76,8 @@ func (r *UserRepository) UpdatePassword(ctx context.Context, userID int64, newPa
 func (r *UserRepository) GetUserByID(ctx context.Context, userID int64) (*models.User, error) {
 	var user models.User
 	err := r.db.QueryRow(ctx,
-		"SELECT id, email, password FROM users WHERE id = $1",
-		userID).Scan(&user.ID, &user.Email, &user.Password)
+		"SELECT id, email, password_hash FROM users WHERE id = $1",
+		userID).Scan(&user.ID, &user.Email, &user.PasswordHash)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound

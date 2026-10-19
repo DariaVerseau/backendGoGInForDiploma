@@ -62,7 +62,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 	}
 
 	// Сравниваем хэш пароля
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		log.Printf("Пароль неверен для email: %s", email)
 		return "", 0, ErrInvalidCredentials
 	}
@@ -102,7 +102,7 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID int64, oldPassw
 	}
 
 	// Проверяем старый пароль
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword)); err != nil {
 		return errors.New("неверный текущий пароль")
 	}
 
