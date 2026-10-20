@@ -1,6 +1,6 @@
 module github.com/DariaVerseau/backendGoGInForDiploma
 
-go 1.26.0
+go 1.26.9
 
 require (
 	github.com/gin-contrib/cors v1.7.7

@@ -1,12 +1,61 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Секреты и окружение
 .env
 .env.*
 !.env.example
-.git
-.gitignore
-.vscode/
-.idea/
+
+# Сборка и артефакты
+main
+cover.out
+*.test
+*.out
+
+# Логи и временные файлы
+*.log
+*.tmp
+*.temp
+
+# Загрузки и результаты (не нужны в образе)
 uploads/
 results/
 inputs/
-*.log
-*.tmp
+output/
+temp_content/
+
+# Модели и большие файлы (если не нужны в образе)
+*.pth
+*.pt
+*.bin
+*.jpg
+*.png
+*.jpeg
+*.mp4
+
+# Документация
+README.md
+docs/
+*.md
+
+# Docker
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+
+# Тесты (unit-тесты не нужны в образе)
+*_test.go
+tests/
+test_*.py
+
+# Системные
+.DS_Store
+Thumbs.db

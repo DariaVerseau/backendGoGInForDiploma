@@ -1,36 +1,50 @@
-# Build stage
-FROM golang:1.25.3 AS builder
+# syntax=docker/dockerfile:1.7
+
+# ---------- Build stage ----------
+ARG GO_VERSION=1.26.9
+FROM golang:${GO_VERSION}-alpine AS builder
 
 WORKDIR /app
 
 # 1. Копируем только зависимости → максимизируем кэширование
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 # 2. Копируем исходный код
-#    Используем .dockerignore, чтобы исключить ненужное
 COPY . .
 
-# 3. Собираем бинарник
-RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/server
+# 3. Собираем бинарник (стат. линковка, без debug-инфо)
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" \
+    -o /app/main ./cmd/server
 
-# Final stage
-FROM alpine:latest
+# ---------- Final stage ----------
+FROM alpine:3.20
 
+# ca-certificates — для HTTPS, tzdata — для TZ
 RUN apk --no-cache add ca-certificates tzdata && \
     update-ca-certificates
 
-WORKDIR /app 
+# Непривилегированный пользователь
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# Копируем бинарник
-COPY --from=builder /app/main .
+WORKDIR /app
 
-# Создаём папку для загрузок
-RUN mkdir -p ./uploads
+# Копируем бинарник (владелец — appuser)
+COPY --from=builder --chown=appuser:appgroup /app/main /app/main
+
+# Папка для uploads (владелец — appuser)
+RUN mkdir -p /app/uploads && chown -R appuser:appgroup /app
+
+USER appuser
 
 EXPOSE 8080
-
-# Запускаем с явной временной зоной (опционально, но рекомендуется)
 ENV TZ=Europe/Moscow
 
-CMD ["./main"]
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+CMD ["/app/main"]
