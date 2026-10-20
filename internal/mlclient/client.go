@@ -16,7 +16,7 @@ import (
 const (
 	defaultBaseURL        = "http://ml-service:8000"
 	defaultRequestTimeout = 600 * time.Second
-	pingTimeout           = 3 * time.Second
+	pingTimeout           = 1 * time.Second
 )
 
 type Client struct {
