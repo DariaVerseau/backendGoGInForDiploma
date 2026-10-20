@@ -45,8 +45,18 @@ func main() {
 		log.Fatal("DATABASE_URL is not set")
 	}
 
-	// === 2. Подключение к БД (локальная переменная, не глобальная) ===
-	pool, err := pgxpool.New(context.Background(), dbURL)
+	// === 2. Подключение к БД ===
+	config, err := pgxpool.ParseConfig(dbURL)
+	if err != nil {
+		log.Fatal("parse db url: ", err)
+	}
+	config.MaxConns = 25
+	config.MinConns = 5
+	config.MaxConnLifetime = time.Hour
+	config.MaxConnIdleTime = 30 * time.Minute
+	config.HealthCheckPeriod = time.Minute
+
+	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
 		log.Fatal("Failed to connect to database: ", err)
 	}
@@ -122,7 +132,7 @@ func main() {
 		protected.POST("/images", imageHandler.UploadImage)
 
 		protected.POST("/ml/upscale", mlHandler.Upscale)
-		//protected.POST("/ml/process", mlHandler.Process)
+		// protected.POST("/ml/process", mlHandler.Process)
 		protected.POST("/ml/enhance", mlHandler.Enhance)
 		protected.POST("/ml/postprocess", mlHandler.PostProcess)
 		protected.POST("/ml/style_transfer", mlHandler.StyleTransfer)
